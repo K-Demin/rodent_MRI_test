@@ -46,6 +46,39 @@ def _percentile(values: Sequence[float], p: float) -> float:
     return s[max(0, min(len(s) - 1, idx))]
 
 
+def _otsu_threshold(values: Sequence[float], bins: int = 128) -> float:
+    lo = min(values)
+    hi = max(values)
+    if hi <= lo:
+        return lo
+    hist = [0] * bins
+    for v in values:
+        b = int((v - lo) / (hi - lo) * (bins - 1))
+        hist[b] += 1
+
+    total = len(values)
+    sum_all = sum(i * c for i, c in enumerate(hist))
+    sum_b = 0.0
+    w_b = 0
+    max_var = -1.0
+    best_bin = bins // 2
+    for i, c in enumerate(hist):
+        w_b += c
+        if w_b == 0:
+            continue
+        w_f = total - w_b
+        if w_f == 0:
+            break
+        sum_b += i * c
+        m_b = sum_b / w_b
+        m_f = (sum_all - sum_b) / w_f
+        var_between = w_b * w_f * (m_b - m_f) ** 2
+        if var_between > max_var:
+            max_var = var_between
+            best_bin = i
+    return lo + (best_bin / (bins - 1)) * (hi - lo)
+
+
 def _largest_component(mask: Sequence[bool], w: int, h: int) -> set[int]:
     visited = [False] * (w * h)
     best: List[int] = []
@@ -68,6 +101,54 @@ def _largest_component(mask: Sequence[bool], w: int, h: int) -> set[int]:
         if len(comp) > len(best):
             best = comp
     return set(best)
+
+
+def _binary_majority(mask: Sequence[bool], w: int, h: int, min_neighbors: int, iters: int = 1) -> List[bool]:
+    out = list(mask)
+    for _ in range(iters):
+        new = [False] * (w * h)
+        for y in range(h):
+            for x in range(w):
+                cnt = 0
+                for yy in range(max(0, y - 1), min(h, y + 2)):
+                    for xx in range(max(0, x - 1), min(w, x + 2)):
+                        if out[yy * w + xx]:
+                            cnt += 1
+                new[y * w + x] = cnt >= min_neighbors
+        out = new
+    return out
+
+
+def _connected_components(mask: Sequence[bool], w: int, h: int) -> List[List[int]]:
+    visited = [False] * (w * h)
+    comps: List[List[int]] = []
+    for i, is_on in enumerate(mask):
+        if not is_on or visited[i]:
+            continue
+        stack = [i]
+        visited[i] = True
+        comp: List[int] = []
+        while stack:
+            a = stack.pop()
+            comp.append(a)
+            x, y = a % w, a // w
+            for nx, ny in (
+                (x - 1, y),
+                (x + 1, y),
+                (x, y - 1),
+                (x, y + 1),
+                (x - 1, y - 1),
+                (x - 1, y + 1),
+                (x + 1, y - 1),
+                (x + 1, y + 1),
+            ):
+                if 0 <= nx < w and 0 <= ny < h:
+                    j = ny * w + nx
+                    if mask[j] and not visited[j]:
+                        visited[j] = True
+                        stack.append(j)
+        comps.append(comp)
+    return comps
 
 
 def _component_centroid(indices: Iterable[int], w: int) -> Tuple[float, float]:
@@ -186,8 +267,18 @@ def pixel_to_world(block: dict, z: int, cx: float, cy: float) -> Point3D:
 
 
 def _segment_brain(im: List[float], w: int, h: int) -> set[int]:
-    thr = _percentile(im, 0.55)
-    return _largest_component([v > thr for v in im], w, h)
+    # Otsu + percentile guard, followed by denoise/fill to get a stable brain mask.
+    thr = max(_otsu_threshold(im), _percentile(im, 0.50))
+    raw = [v > thr for v in im]
+    clean = _binary_majority(raw, w, h, min_neighbors=5, iters=1)
+    clean = _binary_majority(clean, w, h, min_neighbors=3, iters=1)
+    return _largest_component(clean, w, h)
+
+
+def _brain_bbox(brain: set[int], w: int) -> Tuple[int, int, int, int]:
+    xs = [i % w for i in brain]
+    ys = [i // w for i in brain]
+    return min(xs), max(xs), min(ys), max(ys)
 
 
 def estimate_implant(block: dict) -> Tuple[int, float, float, Point3D, int, set[int], List[int]]:
@@ -200,19 +291,57 @@ def estimate_implant(block: dict) -> Tuple[int, float, float, Point3D, int, set[
             continue
         vals = [im[i] for i in brain]
         dark_thr = _percentile(vals, 0.05)
-        dark = [i for i in brain if im[i] <= dark_thr]
-        if len(dark) < 20:
+        # Restrict to central brain region to avoid edge artifacts and extracranial dark spots.
+        bx0, bx1, by0, by1 = _brain_bbox(brain, w)
+        pad_x = max(6, (bx1 - bx0) // 6)
+        pad_y = max(6, (by1 - by0) // 6)
+        interior = {
+            i
+            for i in brain
+            if bx0 + pad_x <= (i % w) <= bx1 - pad_x and by0 + pad_y <= (i // w) <= by1 - pad_y
+        }
+        dark_mask = [False] * (w * h)
+        for i in interior:
+            dark_mask[i] = im[i] <= dark_thr
+        dark_comps = []
+        for c in _connected_components(dark_mask, w, h):
+            if not (20 <= len(c) <= 450):
+                continue
+            cx_c, cy_c = _component_centroid(c, w)
+            x_rel = (cx_c - bx0) / max(1, (bx1 - bx0))
+            y_rel = (cy_c - by0) / max(1, (by1 - by0))
+            if 0.2 <= x_rel <= 0.8 and 0.2 <= y_rel <= 0.9:
+                dark_comps.append(c)
+        if not dark_comps:
+            # Fallback: use darkest interior voxels as a soft candidate.
+            if len(interior) >= 40:
+                soft = _dark_subset(im, interior, 0.05)
+                if len(soft) >= 20:
+                    cx, cy = _component_centroid(soft, w)
+                    mean_dark = sum(im[i] for i in soft) / len(soft)
+                    score = (
+                        -mean_dark
+                        + 0.45 * len(soft)
+                        - 0.28 * abs(cx - w / 2)
+                        - 0.22 * abs(cy - h / 2)
+                    )
+                    candidates.append((score, z, cx, cy, len(soft), brain, soft))
             continue
-        cx, cy = _component_centroid(dark, w)
-        score = len(dark) - 0.2 * abs(cx - w / 2) - 0.2 * abs(cy - h / 2)
-        candidates.append((score, z, cx, cy, len(dark), brain))
+        for comp in dark_comps:
+            cx, cy = _component_centroid(comp, w)
+            mean_dark = sum(im[i] for i in comp) / len(comp)
+            score = (
+                -mean_dark
+                + 0.55 * len(comp)
+                - 0.26 * abs(cx - w / 2)
+                - 0.20 * abs(cy - h / 2)
+            )
+            candidates.append((score, z, cx, cy, len(comp), brain, comp))
 
     if not candidates:
         raise RuntimeError("No implant candidate found")
 
-    _, z, cx, cy, n_dark, brain = max(candidates, key=lambda x: x[0])
-    im = block["images"][z]
-    dark = _dark_subset(im, brain, 0.05)
+    _, z, cx, cy, n_dark, brain, dark = max(candidates, key=lambda x: x[0])
     return z, cx, cy, pixel_to_world(block, z, cx, cy), n_dark, brain, dark
 
 
@@ -236,11 +365,16 @@ def _dg_candidate_in_roi(
 
     roi_vals = [im[i] for i in roi]
     # DG granule layer on T2 is often relatively hypointense; take deep tail in ROI.
-    thr = _percentile(roi_vals, 0.12)
-    dark = [i for i in roi if im[i] <= thr]
-    if len(dark) < 20:
+    thr = _percentile(roi_vals, 0.18)
+    mask = [False] * (w * h)
+    for i in roi:
+        mask[i] = im[i] <= thr
+    comps = [c for c in _connected_components(mask, w, h) if 15 <= len(c) <= 600]
+    if not comps:
         return None
-    return _component_centroid(dark, w)
+    # Prefer darker, compact components.
+    best = min(comps, key=lambda c: (sum(im[i] for i in c) / len(c), -len(c)))
+    return _component_centroid(best, w)
 
 
 def estimate_dg(
@@ -264,9 +398,30 @@ def estimate_dg(
         if len(brain) < 1500:
             continue
 
-        # bilateral hippocampal ROIs (dataset heuristic): mid-lateral + ventral-mid dorsal band.
-        left = _dg_candidate_in_roi(im, brain, w, h, 0.15, 0.45, 0.45, 0.88)
-        right = _dg_candidate_in_roi(im, brain, w, h, 0.55, 0.85, 0.45, 0.88)
+        bx0, bx1, by0, by1 = _brain_bbox(brain, w)
+        bw = max(1, bx1 - bx0)
+        bh = max(1, by1 - by0)
+        # Bilateral hippocampal bands within the segmented brain (relative to brain bbox).
+        left = _dg_candidate_in_roi(
+            im,
+            brain,
+            w,
+            h,
+            (bx0 + 0.10 * bw) / w,
+            (bx0 + 0.42 * bw) / w,
+            (by0 + 0.45 * bh) / h,
+            (by0 + 0.90 * bh) / h,
+        )
+        right = _dg_candidate_in_roi(
+            im,
+            brain,
+            w,
+            h,
+            (bx0 + 0.58 * bw) / w,
+            (bx0 + 0.90 * bw) / w,
+            (by0 + 0.45 * bh) / h,
+            (by0 + 0.90 * bh) / h,
+        )
         if not left or not right:
             continue
 
@@ -283,8 +438,8 @@ def estimate_dg(
         raise RuntimeError("No DG candidates found; try manual DG coordinate input.")
 
     _, z, left, right = best
-    # choose DG candidate nearest to the implant in image space (more robust than x-side assumptions).
-    ipsi = right if abs(right[0] - implant_x) < abs(left[0] - implant_x) else left
+    # Choose ipsilateral side by implant hemisphere relative to image center.
+    ipsi = right if implant_x >= (w / 2) else left
     dgx, dgy = ipsi
     midx, midy = (left[0] + right[0]) / 2, (left[1] + right[1]) / 2
 
