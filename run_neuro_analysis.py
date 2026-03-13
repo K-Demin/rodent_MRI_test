@@ -100,12 +100,12 @@ def _resolve_bruker_converter(converter_cmd: str | None) -> str:
         _require_cmd(converter_exe)
         return converter_cmd
 
-    for candidate in ("bruker2nii", "bruker2nifti", "Bru2"):
+    for candidate in ("bruker2nii", "bruker2nifti", "Bru2Nii", "bru2nii", "Bru2"):
         if shutil.which(candidate):
             return candidate
 
     raise SystemExit(
-        "No Bruker converter found in PATH. Tried: bruker2nii, bruker2nifti, Bru2. "
+        "No Bruker converter found in PATH. Tried: bruker2nii, bruker2nifti, Bru2Nii, bru2nii, Bru2. "
         "Install one of them or pass --bruker-converter-cmd explicitly."
     )
 
@@ -380,7 +380,7 @@ def main() -> None:
         default=None,
         help=(
             "Bruker converter command. If omitted, auto-detects one of: "
-            "bruker2nii, bruker2nifti, Bru2."
+            "bruker2nii, bruker2nifti, Bru2Nii, bru2nii, Bru2."
         ),
     )
     p.add_argument(
@@ -400,7 +400,7 @@ def main() -> None:
 
         if args.no_convert_bruker or not can_attempt_bruker:
             raise SystemExit(
-                "No NIfTI files found. Convert Bruker data first (e.g. Bru2, bruker2nifti, or dcm2niix), "
+                "No NIfTI files found. Convert Bruker data first (e.g. bruker2nifti/bruker2nii, Bru2Nii, or dcm2niix), "
                 "or run without --no-convert-bruker to auto-convert."
             )
 
