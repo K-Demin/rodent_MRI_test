@@ -11,7 +11,6 @@ Given an input folder, this script can:
 from __future__ import annotations
 
 import argparse
-import inspect
 import json
 import shlex
 import shutil
@@ -45,6 +44,38 @@ def _find_t2_niftis(root: Path) -> list[Path]:
 
     t2 = [p for p in all_nifti if "t2" in p.name.lower() or "rare" in p.name.lower()]
     return t2 or all_nifti
+
+
+def _looks_like_t2_bruker_scan(scan_dir: Path) -> bool:
+    method_path = scan_dir / "method"
+    if not method_path.exists():
+        return False
+
+    try:
+        method_text = method_path.read_text(errors="ignore").lower()
+    except OSError:
+        return False
+
+    t2_markers = (
+        "rare",
+        "turborare",
+        "t2",
+        "rapid acquisition with relaxation enhancement",
+    )
+    return any(marker in method_text for marker in t2_markers)
+
+
+def _scan_dirs_in_tree(root: Path) -> list[Path]:
+    scan_dirs: list[Path] = []
+
+    if _is_scan_like_dir(root):
+        scan_dirs.append(root)
+
+    for child in sorted(root.iterdir()):
+        if _is_scan_like_dir(child):
+            scan_dirs.append(child)
+
+    return scan_dirs
 
 
 def _is_3d_nifti(path: Path) -> bool:
@@ -114,68 +145,10 @@ def _bruker_input_candidates(root: Path) -> list[Path]:
 
 
 def _resolve_bruker_converter(converter_cmd: str | None) -> str:
-    if converter_cmd:
-        converter_exe = shlex.split(converter_cmd)[0]
-        _require_cmd(converter_exe)
-        return converter_cmd
-
-    for candidate in ("bruker2nii", "bruker2nifti", "Bru2Nii", "bru2nii", "Bru2"):
-        if shutil.which(candidate):
-            return candidate
-
-    raise SystemExit(
-        "No Bruker converter found in PATH. Tried: bruker2nii, bruker2nifti, Bru2Nii, bru2nii, Bru2. "
-        "Install one of them or pass --bruker-converter-cmd explicitly."
-    )
-
-
-def _call_converter_method(instance: object) -> None:
-    for method_name in ("convert", "convert_study", "convert_scan", "convert_all"):
-        method = getattr(instance, method_name, None)
-        if callable(method):
-            method()
-            return
-    raise AttributeError("No supported convert* method found on bruker2nifti converter instance.")
-
-
-def _try_construct_and_convert(converter_cls: type, input_dir: Path, output_dir: Path) -> None:
-    attempts: list[tuple[tuple[object, ...], dict[str, object]]] = [
-        ((str(input_dir), str(output_dir)), {}),
-        ((input_dir, output_dir), {}),
-        ((), {"input_dir": str(input_dir), "output_dir": str(output_dir)}),
-        ((), {"input_folder": str(input_dir), "output_folder": str(output_dir)}),
-        ((), {"bruker_dir": str(input_dir), "out_dir": str(output_dir)}),
-    ]
-
-    init_sig = inspect.signature(converter_cls.__init__)
-    valid_param_names = set(init_sig.parameters)
-
-    last_exc: Exception | None = None
-    for args, kwargs in attempts:
-        filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_param_names}
-        try:
-            instance = converter_cls(*args, **filtered_kwargs)
-            _call_converter_method(instance)
-            return
-        except Exception as exc:
-            last_exc = exc
-
-    if last_exc is not None:
-        raise last_exc
-
-
-def _python_bruker2nifti_convert(input_dir: Path, output_dir: Path) -> tuple[bool, str | None]:
-    try:
-        from bruker2nifti.converter import Bruker2Nifti  # type: ignore
-    except Exception as exc:
-        return False, f"Python bruker2nifti unavailable ({exc})."
-
-    try:
-        _try_construct_and_convert(Bruker2Nifti, input_dir=input_dir, output_dir=output_dir)
-    except Exception as exc:
-        return False, f"Python bruker2nifti conversion failed ({exc})."
-
-    return True, None
+    resolved = converter_cmd or "brkraw"
+    converter_exe = shlex.split(resolved)[0]
+    _require_cmd(converter_exe)
+    return resolved
 
 
 def _convert_bruker_to_nifti(
@@ -185,36 +158,15 @@ def _convert_bruker_to_nifti(
     converter_args_template: str,
 ) -> list[Path]:
     converted_dir.mkdir(parents=True, exist_ok=True)
-    resolved_converter = None
-    if converter_cmd:
-        resolved_converter = _resolve_bruker_converter(converter_cmd)
-        print(f"Using Bruker converter command: {resolved_converter}")
-    else:
-        print("Trying Python bruker2nifti package first; will fall back to CLI converters if unavailable.")
+    resolved_converter = _resolve_bruker_converter(converter_cmd)
+    print(f"Using Bruker converter command: {resolved_converter}")
 
     last_error: subprocess.CalledProcessError | None = None
-    last_python_error: str | None = None
     for idx, candidate in enumerate(_bruker_input_candidates(input_root), start=1):
         attempt_out = converted_dir / f"attempt_{idx}"
         if attempt_out.exists():
             shutil.rmtree(attempt_out)
         attempt_out.mkdir(parents=True, exist_ok=True)
-
-        if resolved_converter is None:
-            if candidate != input_root:
-                print(f"Retrying Python bruker2nifti conversion with likely study root: {candidate}")
-            ok, py_err = _python_bruker2nifti_convert(candidate, attempt_out)
-            if ok:
-                converted = _find_t2_niftis(attempt_out)
-                if converted:
-                    return converted
-            elif py_err:
-                last_python_error = py_err
-                print(py_err)
-
-            # Resolve CLI converter lazily only when Python path failed.
-            resolved_converter = _resolve_bruker_converter(None)
-            print(f"Falling back to Bruker converter command: {resolved_converter}")
 
         try:
             converter_args = converter_args_template.format(
@@ -246,12 +198,6 @@ def _convert_bruker_to_nifti(
             "Bruker conversion failed for all candidate input paths. "
             "Clean --out-dir/converted_nifti and verify input points to a Bruker study or scan folder."
         ) from last_error
-
-    if last_python_error is not None:
-        raise SystemExit(
-            "Bruker conversion failed via Python bruker2nifti and no CLI fallback succeeded. "
-            f"Last Python error: {last_python_error}"
-        )
 
     return _find_t2_niftis(converted_dir)
 
@@ -471,7 +417,7 @@ def main() -> None:
         description="Closed-loop T2 pipeline: discover NIfTI files in a folder and run AFNI/SPM.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--input-root", type=Path, required=True, help="Folder containing NIfTI scans")
+    p.add_argument("--input-root", type=Path, required=True, help="Folder containing NIfTI or Bruker scans")
     p.add_argument(
         "--species",
         choices=["mouse", "rat", "human"],
@@ -525,13 +471,13 @@ def main() -> None:
         "--bruker-converter-cmd",
         default=None,
         help=(
-            "Bruker converter command. If omitted, auto-detects one of: "
-            "bruker2nii, bruker2nifti, Bru2Nii, bru2nii, Bru2."
+            "Bruker converter command. Defaults to 'brkraw'. "
+            "Override when brkraw is installed under a different executable/wrapper."
         ),
     )
     p.add_argument(
         "--bruker-converter-args",
-        default="-i {input} -o {output}",
+        default="tonii {input} -o {output}",
         help="Arguments template for Bruker converter. Available placeholders: {input}, {output}, {scan_id}.",
     )
     args = p.parse_args()
@@ -541,13 +487,28 @@ def main() -> None:
 
     scans = args.input_nii or _find_t2_niftis(args.input_root)
     scans = [p for p in scans if _is_3d_nifti(p)]
+
+    if args.input_nii is None and scans:
+        scan_roots = _scan_dirs_in_tree(args.input_root)
+        if scan_roots:
+            t2_scan_dirs = [scan for scan in scan_roots if _looks_like_t2_bruker_scan(scan)]
+            if t2_scan_dirs:
+                t2_scan_tokens = {scan.name for scan in t2_scan_dirs}
+                filtered_scans = [
+                    nii
+                    for nii in scans
+                    if any(part in t2_scan_tokens for part in nii.relative_to(args.input_root).parts)
+                ]
+                if filtered_scans:
+                    scans = filtered_scans
+
     if not scans:
         bruker_candidates = _bruker_input_candidates(args.input_root)
         can_attempt_bruker = any(_looks_like_bruker_root(candidate) for candidate in bruker_candidates)
 
         if args.no_convert_bruker or not can_attempt_bruker:
             raise SystemExit(
-                "No NIfTI files found. Convert Bruker data first (e.g. bruker2nifti/bruker2nii, Bru2Nii, or dcm2niix), "
+                "No NIfTI files found. Convert Bruker data first (e.g. brkraw), "
                 "or run without --no-convert-bruker to auto-convert."
             )
 
