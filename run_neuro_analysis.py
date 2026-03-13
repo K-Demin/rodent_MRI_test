@@ -58,6 +58,42 @@ def _looks_like_bruker_root(root: Path) -> bool:
     return any(root.glob("*/pdata/*/2dseq"))
 
 
+def _is_scan_like_dir(path: Path) -> bool:
+    return path.is_dir() and path.name.isdigit() and (path / "acqp").exists() and (path / "method").exists()
+
+
+def _bruker_input_candidates(root: Path) -> list[Path]:
+    candidates = [root]
+
+    # Common operator mistakes:
+    # - passing a single scan folder (.../5)
+    # - passing a nested pdata path (.../5/pdata/1)
+    # Add likely scan/study ancestors as fallback converter inputs.
+    ancestors = [root, *root.parents]
+    for anc in ancestors:
+        if anc == anc.parent:
+            continue
+        if _is_scan_like_dir(anc):
+            candidates.append(anc)
+            candidates.append(anc.parent)
+        elif (anc / "study.MR").exists():
+            candidates.append(anc)
+
+    # If user points inside pdata tree, include immediate parents explicitly.
+    if "pdata" in root.parts:
+        pdata_idx = root.parts.index("pdata")
+        if pdata_idx > 0:
+            scan_guess = Path(*root.parts[:pdata_idx])
+            candidates.extend([scan_guess, scan_guess.parent])
+
+    # De-duplicate while preserving order.
+    uniq: list[Path] = []
+    for item in candidates:
+        if item not in uniq:
+            uniq.append(item)
+    return uniq
+
+
 def _resolve_bruker_converter(converter_cmd: str | None) -> str:
     if converter_cmd:
         converter_exe = shlex.split(converter_cmd)[0]
@@ -83,20 +119,46 @@ def _convert_bruker_to_nifti(
     resolved_converter = _resolve_bruker_converter(converter_cmd)
 
     converted_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        converter_args = converter_args_template.format(
-            input=input_root.as_posix(),
-            output=converted_dir.as_posix(),
-        )
-    except KeyError as exc:
-        raise SystemExit(
-            "Invalid --bruker-converter-args template. "
-            "Use placeholders {input} and/or {output}."
-        ) from exc
-
-    cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
     print(f"Using Bruker converter: {resolved_converter}")
-    _run(cmd)
+
+    last_error: subprocess.CalledProcessError | None = None
+    for idx, candidate in enumerate(_bruker_input_candidates(input_root), start=1):
+        attempt_out = converted_dir / f"attempt_{idx}"
+        if attempt_out.exists():
+            shutil.rmtree(attempt_out)
+        attempt_out.mkdir(parents=True, exist_ok=True)
+
+        try:
+            converter_args = converter_args_template.format(
+                input=candidate.as_posix(),
+                output=attempt_out.as_posix(),
+            )
+        except KeyError as exc:
+            raise SystemExit(
+                "Invalid --bruker-converter-args template. "
+                "Use placeholders {input} and/or {output}."
+            ) from exc
+
+        cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
+        if candidate != input_root:
+            print(f"Retrying Bruker conversion with likely study root: {candidate}")
+
+        try:
+            _run(cmd)
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            continue
+
+        converted = _find_t2_niftis(attempt_out)
+        if converted:
+            return converted
+
+    if last_error is not None:
+        raise SystemExit(
+            "Bruker conversion failed for all candidate input paths. "
+            "Clean --out-dir/converted_nifti and verify input points to a Bruker study or scan folder."
+        ) from last_error
+
     return _find_t2_niftis(converted_dir)
 
 
@@ -333,7 +395,10 @@ def main() -> None:
 
     scans = args.input_nii or _find_t2_niftis(args.input_root)
     if not scans:
-        if args.no_convert_bruker or not _looks_like_bruker_root(args.input_root):
+        bruker_candidates = _bruker_input_candidates(args.input_root)
+        can_attempt_bruker = any(_looks_like_bruker_root(candidate) for candidate in bruker_candidates)
+
+        if args.no_convert_bruker or not can_attempt_bruker:
             raise SystemExit(
                 "No NIfTI files found. Convert Bruker data first (e.g. Bru2, bruker2nifti, or dcm2niix), "
                 "or run without --no-convert-bruker to auto-convert."
