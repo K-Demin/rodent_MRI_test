@@ -1,0 +1,26 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums, RLE encoded arrays
+$$ 2026-03-13 14:43:08.616 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/7/AdjStatePerScan
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$AdjScanStateCompleted=No
+##$AdjScanStateAdjName=( 1, 128 )
+<RCVR_Standard>
+##$AdjScanStateTime=( 1 )
+<2026-03-13T14:42:46,384+0900>
+##$AdjScanStateExpno=( 1 )
+7
+##$AdjScanStateState=( 1 )
+adj_successful
+##$AdjScanStateResultId=( 1, 65 )
+<2.16.756.5.5.200.8323328.528993.1773380508.875>
+##$AdjScanStateMethod=( 1, 128 )
+<User:epi_TriggerV2>
+##$AdjScanStateModality=( 1 )
+MR_Modality
+##END=
+$$ File finished by PARX at 2026-03-13 14:43:08.616 +0900

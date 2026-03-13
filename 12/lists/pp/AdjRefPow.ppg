@@ -1,0 +1,142 @@
+;****************************************************************
+;
+; Copyright (c) 2016
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+; 
+;
+;****************************************************************
+;
+; d0 - TR padding
+; d8 - 1 us
+
+#include <MRI.include>
+#include <Trigger.mod>
+
+define list<frequency> freqTx = { $ExcFqlist }
+define list<frequency> freqRx = { $RecFqlist }
+
+
+define delay dur2
+"dur2=d2-de"
+
+define delay dur4
+"dur4 = d4-de"
+
+define loopcounter lds={$PVM_DummyScans}
+
+define pulse refp
+"refp = 2*p0" 
+
+define loopcounter lbase={$NFaBasel}
+
+define loopcounter lheat={$HeatLoopCnt}
+"lheat = lheat / 128"
+
+define delay hgd0={$HGD[0]}
+define delay hgd1={$HGD[1]}
+define delay hgd2={$HGD[2]}
+define delay hgd3={$HGD[3]}
+define delay dramp
+define list<grad_vector> HeatGradVec = {$HeatGradVec}
+"dramp = 2*hgd3"
+
+
+subroutine HeatBipolarGrad()
+{
+   if(ACQ_scan_type == Scan_Experiment)
+   {
+    if(HeatGradYN==Yes)
+    {
+
+    heatlab, hgd0
+
+       hgd1     grad_ramp<hgd3,  magnet_coord> {  HeatGradAmp*HeatGradVec[] }
+       hgd2     grad_ramp<dramp, magnet_coord> { -HeatGradAmp*HeatGradVec[] }
+       hgd3     grad_off
+
+    lo to heatlab times 128
+         2m
+
+    lo to heatlab times lheat
+    }
+   }
+}
+
+#define gsw grad_ramp {0,0,SliceGrad}
+
+INIT_DEVICES
+
+         0u     rpp0
+         0u     freqTx.res 
+         0u     freqRx.res
+
+start,   0u
+stna,    0u
+stnr,    0u
+
+   if(DynFaMeasMode==DynamicFA)
+   {
+     if "lbase > 0" goto stbase
+
+            subr HeatBipolarGrad()  
+   }
+
+stbase,  UPDATE_DYN_PARS_30u 
+subr Trigger()
+         10u      freqRx(receive):f1
+         d6      gsw  freqTx:f1
+         d8      
+
+        (p0:sp0  ph0):f1
+
+         d1                         ; TE1/2 fill
+         d8
+
+      (refp:sp0  ph3):f1
+
+      dur2                          ; SE TE2/2 fill
+                 ADC_INIT_(job0, ph1, ph0)
+
+  AQ_(job0)      ADC_START_(job0)
+
+        d5
+       10u       ADC_END_(job0)
+	d3                          ; TM fill
+	d8
+
+       (p0:sp0   ph0):f1
+
+      dur4    
+                 ADC_INIT_(job0, ph1, ph0)  
+  AQ_(job0)      ADC_START_(job0)
+	d5
+       10u       ADC_END_(job0)
+	d0       grad_off
+
+	        "lds = lds - 1"	    ; this makes
+   if "lds>=0" goto stbase	    ; dummy scans 
+
+        0u	 ipp0
+
+     lo to stna times NA
+
+        0u	 rpp0
+
+SETUP_GOTO(stbase)
+
+
+   if(DynFaMeasMode==DynamicFA)
+   {
+       "lbase = lbase -1"
+   }
+
+     lo to stnr times NR
+
+exit
+
+ph0 = 0 
+ph3 = 0
+ph1 = 0

@@ -1,0 +1,43 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums, RLE encoded arrays, symbol visibility
+$$ 2026-03-13 15:27:56.887 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/subject
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$SUBJECT_version_nr=4
+##$SUBJECT_name_string=( 64 )
+<Kostya^^^^>
+##$SUBJECT_id=( 60 )
+<Kostya>
+##$SUBJECT_instance_uid=( 65 )
+<2.16.756.5.5.200.8323328.2247006.1760352368.13>
+##$SUBJECT_instance_creation_date=(1760352368, 436, 540)
+##$SUBJECT_dbirth=( 12 )
+<13 Oct 2025>
+##$SUBJECT_type=Quadruped
+##$SUBJECT_gender=UNKNOWN
+##$SUBJECT_study_modalities=( 1 )
+MR_Modality
+##$SUBJECT_study_name=( 64 )
+<260413_fiber_placement_engrams>
+##$SUBJECT_study_nr=13
+##$SUBJECT_study_instance_uid=( 65 )
+<2.16.756.5.5.200.8323328.528993.1773377941.13>
+##$SUBJECT_study_date=(1773377941, 618, 540)
+##$SUBJECT_study_weight=0.001
+##$SUBJECT_study_operator=( 64 )
+<neuro>
+##$SUBJECT_study_instrument_position=Head_Prone
+##$CMN_study_use_ats=No
+$$ @vis= SUBJECT SUBJECT_version_nr SUBJECT_object SUBJECT_name_string
+$$ @vis= SUBJECT_id SUBJECT_instance_uid SUBJECT_instance_creation_date
+$$ @vis= SUBJECT_dbirth SUBJECT_type SUBJECT_gender SUBJECT_study
+$$ @vis= SUBJECT_study_modalities SUBJECT_study_name SUBJECT_study_nr
+$$ @vis= SUBJECT_study_instance_uid SUBJECT_study_date SUBJECT_study_weight
+$$ @vis= SUBJECT_study_operator SUBJECT_study_instrument_position
+$$ @vis= CMN_study_use_ats SUBJECT_study_multi
+##END=
+$$ File finished by PARX at 2026-03-13 15:27:56.887 +0900

@@ -1,0 +1,12 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums, RLE encoded arrays
+$$ 2026-03-13 14:01:04.246 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/AdjResult/2.16.756.5.5.200.8323328.528993.1773378020.65/result.jcamp
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$PVM_StudyRefPow=(1.6963291016490765, <Adj by Bruker:AdjRefPowADJ_REF_POW>)
+##END=
+$$ File finished by PARX at 2026-03-13 14:01:04.246 +0900

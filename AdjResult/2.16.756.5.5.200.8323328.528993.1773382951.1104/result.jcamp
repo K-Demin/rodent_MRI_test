@@ -1,0 +1,24 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums, RLE encoded arrays
+$$ 2026-03-13 15:22:31.841 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/AdjResult/2.16.756.5.5.200.8323328.528993.1773382951.1104/result.jcamp
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$PVM_FrqAdj1H=400.30775633382069
+##$PVM_FrqAdj1HPpm=4.7000000000000002
+##$PVM_NucleiPpmRef=( 20 )
+(<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) 
+(<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) 
+(<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) (<none>, 0) 
+(<none>, 0) (<none>, 0)
+##$PVM_AdjShimset=( 10 )
+-0.0011324883857355577 6.3729304951552601 -2.1965362020294497 
+49.994659342336156 3.0090791180285343 -21.629663538567176 1.7326619363698785 
+4.8622873273823144 -0.72251468680857556 2.5848783093003735
+##$PVM_DynamicShim=( 1, 10 )
+0 0 0 0 0 0 0 0 0 0
+##END=
+$$ File finished by PARX at 2026-03-13 15:22:31.841 +0900

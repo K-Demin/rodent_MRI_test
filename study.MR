@@ -1,0 +1,35 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums, RLE encoded arrays, symbol visibility
+$$ 2026-03-13 15:27:56.881 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/study.MR
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$MR_study_coil_configuration=( 65 )
+<2.16.756.5.5.200.8323328.1805615.1769735809.13>
+##$MR_study_gradient_system=( 10240 )
+<$Bis,1,20070906,2048,GRADSYS,1#$Production,W3307165,0121,00,04,BFR,
+20150618#$Name,B-GA12SHP INSERT FOR BGA20S BC94/30#$GradSystem,1.0,27,S116,0,,
+1#$GradTempSensor,1.0,1,PT100,60#$GradTempSensor,1.0,2,PT100,
+60#$GradTempSensor,1.0,3,PT100,60#$GradTempSensor,1.0,4,PT100,
+60#$GradTempSensor,1.0,5,PT100,75#$GradTempSensor,1.0,6,PT100,75#$GradCoil,
+1.0,B0,S,2500,1.4,,130,10,#$GradCoil,1.0,X,S,935,0.12,,500,300,2430#$GradCoil,
+1.0,Y,S,935,0.11,,500,300,1750#$GradCoil,1.0,Z,S,935,0.10,,500,300,
+2025#$EndBis,86,89#>
+##$MR_study_shim_system=( 10240 )
+<$Bis,1,20090903,2048,SHIMSYS,1#$Production,W3307165,0121,00,04,BFR,
+20150618#$Name,B-GA12SHP INSERT FOR BGA20S BC94/30#$ShimSystem,1.0,27,S116,7,,
+#$ShimTempSensor,1.0,1,PTC,#$ShimCoil,1.0,1,3.2,150,10,#$ShimCoil,1.0,2,2.9,
+150,10,#$ShimCoil,1.0,3,2.9,150,10,#$ShimCoil,1.0,4,3.6,150,10,#$ShimCoil,1.0,
+5,3.6,150,10,#$ShimCoil,1.0,6,4.4,150,10,#$ShimCoil,1.0,7,1.0,150,10,
+#$ShimFunction,1.0,1,Z2,2,250#$ShimFunction,1.0,2,ZX,2,260#$ShimFunction,1.0,
+3,ZY,2,260#$ShimFunction,1.0,4,2XY,2,110#$ShimFunction,1.0,5,X2-Y2,2,
+110#$ShimFunction,1.0,6,Z3,3,10#$ShimFunction,1.0,7,Z4,4,1#$ShimMatrix,1.0,1,
+1,1.0#$ShimMatrix,1.0,2,2,1.0#$ShimMatrix,1.0,3,3,1.0#$ShimMatrix,1.0,4,4,
+1.0#$ShimMatrix,1.0,5,5,1.0#$ShimMatrix,1.0,6,6,1.0#$ShimMatrix,1.0,7,7,
+1.0#$EndBis,83,8D#>
+$$ @vis= STUDY_MODALITY MR_study MR_study_adj_config
+##END=
+$$ File finished by PARX at 2026-03-13 15:27:56.881 +0900

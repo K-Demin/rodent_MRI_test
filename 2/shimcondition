@@ -1,0 +1,22 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums
+$$ 2026-03-13 14:10:55.265 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/2/shimcondition
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$SHIM_State=( 1024 )
+<B-GA12SHP INSERT FOR BGA20S BC94/30 (BFR W3307165/0121).165934558>
+##$N_SHIMS_av=10
+##$SHIM_Identifiers=( 10, 64 )
+<Ch1: Spf17 FRED> <Ch2: Spf3 Gradient Z> <Ch3: Spf4 SPS1,1 CoilPins=B1-B2 
+CoilId=1> <Ch4: Spf9 SPS1,6 CoilPins=B4-B5 CoilId=6> <Ch5: Spf1 Gradient X> 
+<Ch6: Spf2 Gradient Y> <Ch7: Spf5 SPS1,3 CoilPins=C4-C5 CoilId=2> <Ch8: Spf6 
+SPS1,2 CoilPins=D1-D2 CoilId=3> <Ch9: Spf7 SPS1,5 CoilPins=F1-F2 CoilId=4> 
+<Ch10: Spf8 SPS1,4 CoilPins=E4-E5 CoilId=5>
+##$ACQ_basic_shim=( 10 )
+0 6.4621957732509347 0 0 3.2845044632639047 -21.247425040054932 0 0 0 0
+##END=
+$$ File finished by PARX at 2026-03-13 14:10:55.265 +0900

@@ -1,0 +1,15 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums, RLE encoded arrays, symbol visibility
+$$ 2026-03-13 14:40:24.394 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/acqp.out
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$ACQ_sw_version=( 65 )
+<PV-360.3.6>
+##$ACQ_abs_time=(1773380329, 385, 540)
+$$ @vis= ACQP_OUT ACQ_sw_version ACQ_abs_time
+##END=
+$$ File finished by PARX at 2026-03-13 14:40:24.394 +0900

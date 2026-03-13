@@ -1,0 +1,124 @@
+;==============================================================
+;=
+;= $Source$
+;=
+;= A multi gradient echo pulseprogram
+;=
+;= $Id$
+;==============================================================
+
+
+
+#include <MRI.include>
+#include <PrepModulesHead.mod>
+
+;===========================================================
+;   definition of delays
+;===========================================================
+
+define delay denab
+"denab =  d24 - de"
+
+define delay d4m40u
+"d4m40u = d4 - 40u"
+
+define delay d5m10u
+"d5m10u = d5 - 10u"
+
+define loopcounter lds = {$PVM_DummyScans}
+"l3 = l0 + lds"
+
+
+#define r2d ACQ_spatial_phase_1
+#define r3d ACQ_spatial_phase_2
+define list<frequency> freqTx1 = {$ACQ_O1_list}
+define list<frequency> freqTx2 = {$ACQ_O2_list}
+define list<frequency> freqRx = {$ACQ_O1B_list}
+
+grad_zero_for_gs <r2d, r3d>
+
+
+subroutine FieldMap(any grsw)
+{
+         d1             freqTx1:f1       grad_ramp<grsw>{0, 0, g0}
+        (p0:sp0         ph1):f1
+         d3             grad_ramp<grsw>{g2, r2d*g3, g1+r3d*g4}
+     d5m10u             freqTx2:f1       grad_off
+        10u
+
+ if (PVM_NEchoImages > 1)
+ {
+  echo, 10u             freqRx(receive):f1
+      denab             grad_ramp<grsw>{g5, 0, 0}
+                        ADC_INIT_(job0, ph1, ph0)
+   AQ_(job0)            ADC_START_(job0)
+         d7             grad_off
+         d8             grad_ramp<grsw>{g9, 0, 0}
+     d4m40u             grad_off
+        40u             ADC_END_(job0)
+         d9
+      lo to echo times l8
+ }
+
+        10u             freqRx(receive):f1
+      denab             grad_ramp<grsw>{g5, 0, 0}
+                        ADC_INIT_(job0, ph1, ph0)
+   AQ_(job0)            ADC_START_(job0)
+         d3             grad_ramp<grsw>{g8, r2d*g6, r3d*g7}
+         d6             grad_ramp<grsw>{g8, 0, 0}
+     d4m40u             grad_off
+        40u             ADC_END_(job0)
+         d0
+
+         0u             grad_matrix.inc
+         0u             freqTx1.inc
+         0u             freqTx2.inc
+         0u             freqRx.inc
+
+      lo to slice times NSLICES
+         0u             ipp1
+         0u             grad_matrix.res
+
+      lo to start times NA
+         0u             rpp1
+         0u             r2d.inc
+
+      lo to start times l3
+         0u             r3d.inc
+
+                        "l3 = l0"
+
+      lo to start times l1
+
+      lo to start times NAE
+
+  SETUP_GOTO(start)
+}
+
+
+;===========================================================
+;   declaration of 2d and 3d loop
+;===========================================================
+
+INIT_DEVICES
+
+dsl,         r2d.dec
+      lo to dsl times PVM_DummyScans
+
+start,
+        subr TriggerPhase()
+
+slice,       UPDATE_DYN_PARS_30u
+        subr TriggerSlice()
+        subr FovSat()
+        subr FatSup()
+        subr FieldMap(rps_coord)
+
+exit
+
+;============================================================
+;phase lists
+
+ph0 = 0
+ph1 = 0 2 1 3
+;============================================================

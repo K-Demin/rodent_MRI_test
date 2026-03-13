@@ -1,0 +1,275 @@
+##TITLE=Parameter List, ParaVision 360 V3.6
+##JCAMPDX=4.24
+##DATATYPE=Parameter Values
+##ORIGIN=Bruker BioSpin GmbH & Co. KG
+##OWNER=neuro
+$$ Write Options: Symbolic Enums, RLE encoded arrays, symbol visibility
+$$ 2026-03-13 14:27:24.188 +0900  neuro@czc4217pzz
+$$ /opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/6/pdata/1/reco
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
+##$RECO_time=<2026-03-13T14:27:24,162+0900>
+##$RECO_abs_time=(1773379644, 162, 540)
+##$RECO_base_image_uid=( 65 )
+<2.16.756.5.5.200.8323328.528993.1773379272.569>
+##$RECO_fov=( 2 )
+1.6000000000000001 1
+##$RECO_size=( 2 )
+256 128
+##$RecoAutoDerive=No
+##$RecoDim=2
+##$RecoSpatDim=2
+##$RecoObjectsPerRepetition=18
+##$RecoObjectsPerSetupStep=18
+##$RecoSortObjectsPerRepetition=18
+##$RecoNumRepetitions=1
+##$RecoNumOutputChan=1
+##$RecoDescriptionInSliceCount=1
+##$RecoDescriptionSliceCount=18
+##$RecoDescriptionOutSliceCount=1
+##$RecoEncodingOuterRepetitions=0
+##$RecoEncodingFrames=1
+##$RecoRepetitionGroupSize=1
+##$RecoPreppassProcDim=0
+##$RecoPreppassMultiplier=1
+##$RECO_inp_order=NO_REORDERING
+##$RECO_inp_size=( 2 )
+139 96
+##$RECO_ft_size=( 2 )
+256 128
+##$RECO_offset=( 2, 18 )
+@36*(0)
+##$RECO_qopts=( 2 )
+NO_QOPTS NO_QOPTS
+##$RECO_wdw_mode=( 2 )
+NO_WDW NO_WDW
+##$RECO_lb=( 2 )
+-0.5 -0.5
+##$RECO_sw=( 2 )
+0 1
+##$RECO_gb=( 2 )
+0.5 0.5
+##$RECO_sbs=( 2 )
+1 1
+##$RECO_tm1=( 2 )
+0.25 0.25
+##$RECO_tm2=( 2 )
+0.75 0.75
+##$RECO_ft_mode=( 2 )
+COMPLEX_FT COMPLEX_FT
+##$RECO_pc_mode=( 2 )
+FIRST_ORDER_PC FIRST_ORDER_PC
+##$RECO_pc_lin=( 2 )
+(0, 180) (0, 180)
+##$RECO_rotate=( 2, 18 )
+@18*(0.5) @18*(0.51168221285389037)
+##$RECO_ppc_mode=NO_PPC
+##$RECO_ppc_degree=1
+##$RECO_transposition=( 18 )
+@18*(0)
+##$RECO_image_type=MAGNITUDE_IMAGE
+##$RECO_image_threshold=0.14999999999999999
+##$RECO_wordtype=_16BIT_SGN_INT
+##$RECO_map_mode=ABSOLUTE_MAPPING
+##$RECO_map_range=( 2 )
+-2147483647 2147483647
+##$RECO_map_percentile=( 2 )
+1 99.900000000000006
+##$RECO_map_error=0.025000000000000001
+##$RECO_minima=( 18 )
+4.5113927772361819 1.3427937139734589 5.912521669637206 5.8079836635727853 
+7.5706739148394906 4.9395799972445511 3.6765586583935668 3.6699752145180904 
+3.7526350883626942 3.101438288661984 7.3490347589618326 3.6786540734894468 
+4.4340643359594267 2.9212002812990931 5.6333059633527061 7.129833330314006 
+6.286998359904473 9.4635085671430197
+##$RECO_maxima=( 18 )
+7290.8212965982921 19677.910828910659 25479.261238985571 27122.77034523277 
+28382.984767267764 31671.760760457004 31035.065807498064 32766.5 
+29096.851054072751 29309.13918729447 31243.32254706182 28921.403217373823 
+24281.386843314758 25700.508895482693 23742.152223676538 22556.803836806568 
+20183.396007479812 11563.414749156764
+##$RECO_map_min=( 18 )
+@18*(-14802.580257617614)
+##$RECO_map_max=( 18 )
+@18*(14802.580257617614)
+##$RECO_map_offset=( 18 )
+@18*(0)
+##$RECO_map_slope=( 18 )
+@18*(2.2135667856377879)
+##$RECO_byte_order=littleEndian
+##$RecoUserUpdate=Yes
+##$RecoReverseSegment=0
+##$RecoB0DemodOff=0
+##$RecoB0DemodDelay=0
+##$RecoFTOrder=( 2 )
+0 1
+##$RecoHalfFTAlgorithm=ZEROFILLING
+##$RecoHalfFT=( 2 )
+No No
+##$RecoHalfFTPos=( 2 )
+43 48
+##$RecoHalfFTAcq=Yes
+##$RecoNoFT=No
+##$RecoExportSortedData=No
+##$RecoCorrPhase=RecoCorrPhaseOff
+##$RecoCorrPhaseRef=-1
+##$RECO_map_user_slope=1
+##$RECO_map_user_offset=0
+##$RecoNumInputChan=1
+##$RecoScaleChan=( 1 )
+0.98632200000000003
+##$RecoPhaseChan=( 1 )
+295.67169999999999
+##$RecoCombineMode=SumOfSquares
+##$RecoEncGenInt=4
+##$RecoSortDim=2
+##$RecoSortSize=( 2 )
+96 18
+##$RecoSortRange=( 2 )
+128 18
+##$RecoSortSegment=( 2 )
+1 0
+##$RecoSortMaps=( 114 )
+16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 
+42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 
+68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 
+94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 0 2 4 6 8 
+10 12 14 16 1 3 5 7 9 11 13 15 17
+##$RecoGrappaAccelFactor=1
+##$RecoGrappaAccelFactor2=1
+##$RecoGrappaKernelRead=5
+##$RecoGrappaKernelPhase=4
+##$RecoGrappaKernelPhase2=4
+##$RecoGrappaKernelTime=3
+##$RecoGrappaNumRefRead=64
+##$RecoGrappaNumRefPhase=0
+##$RecoGrappaNumRefPhase2=0
+##$RecoGrappaIncludeRefLines=Yes
+##$RecoGrappaFirstRepOnly=No
+##$RecoGrappaReadCenter=0
+##$RecoGrappaPhaseCenter=0
+##$RecoGrappaPhaseCenter2=0
+##$RecoGrappaTruncThresh=0.01
+##$RecoGrappaLambda=0.01
+##$RecoGrappaCoefReps=1
+##$RecoSliceGrappaAccelFactor=1
+##$RecoSliceGrappaBlipValue=1
+##$RecoSliceGrappaKernelRead=5
+##$RecoSliceGrappaKernelPhase=4
+##$RecoSliceGrappaNumRefRead=0
+##$RecoSliceGrappaNumRefPhase=0
+##$RecoSliceGrappaReadCenter=0
+##$RecoSliceGrappaPhaseCenter=0
+##$RecoSliceGrappaTruncThresh=0.01
+##$RecoSliceGrappaLambda=0.01
+##$RecoSliceGrappaOff=No
+##$RecoGrappa3D=No
+##$RecoGrappaCaipirinha=No
+##$RecoGrappaTCaipirinha=No
+##$RecoGrappaVirtualCoils=No
+##$RecoGrappaVirtualCoilsLambda=2
+##$RecoGrappaPeak=No
+##$RecoGrappaTimeLoop=No
+##$RecoGrappaOne=No
+##$RecoGrappaOneLambda=0.10000000000000001
+##$RecoSegGrappa=No
+##$RecoSegGrappaCalibrateFromB0=No
+##$RecoSegGrappaInt=0
+##$RecoSegGrappaSegments=1
+##$RecoSegGrappaTruncThresh=0.01
+##$RecoSegGrappaLambda=0.01
+##$RecoSegGrappaLambdaSeg=2
+##$RecoItGrappa=1
+##$RecoCS=No
+##$RecoNnDenoising=No
+##$RecoNnCpuOnly=No
+##$RecoNnParallelProcessing=1
+##$RecoNnDifferenceMode=No
+##$RecoNnPatchSizeMax=0
+##$RecoNnNdIso=1
+##$RecoNnPatchBorder=32
+##$RecoNnDenoisingLevel=( 1 )
+100
+##$RecoNnDataConsistency=( 1 )
+0
+##$RecoNnDataConsistencyCenter=( 1 )
+0
+##$RecoNnDataConsistencyRatio=( 1 )
+0
+##$RecoNnDataConsistencyCenterRatio=( 1 )
+0
+##$RecoNnDenoisingPre=No
+##$RecoNnDenoisingLevelPre=0
+##$RecoNnDataConsistencyPre=100
+##$RecoNnDataConsistencyCenterPre=100
+##$RecoNnDataConsistencyRatioPre=100
+##$RecoNnDataConsistencyCenterRatioPre=100
+##$RecoRegridN=Off
+##$RecoStageNrPasses=4
+##$RecoStagePasses=( 4 )
+(<FIRSTPASS>, 0) (<FTPASS1>, 1) (<PREPPASS>, 2) (<MAPPASS>, 3)
+##$RecoStageNrNodes=35
+##$RecoStageNodes=( 35 )
+(<job0>, 0, <RecoSharedQueueSource 
+Q0{queueId=Job_In0;initQueue=true;appendPsId=true;dim=2;procDim=1;sizes={139,
+17280};nr=1;dataRep=SIGNED;baseField=COMPLEX;wordSize=4}>) (<job0>, 0, 
+<RecoSharedQueueSink QS{queueId=Job_Out0;initQueue=true;appendPsId=true}>) 
+(<job0>, 0, <RecoFileSink 
+FS{jobNdx=0;writeAcqPars=true;filename="/opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/6/rawdata.job0"}>) (<job0>, 0, <RecoProgressMonitorFilter PM{reportScanProgress="1/1"}>) (<job0>, 0, <RecoCastFilter CastToFloatMain{dataRep=FLOAT;wordSize=8}>) (<job0>, 0, <RecoAcqOutFilter Av{displayEachAccumulation=1;displayEachScan=0;displayEachPeStep=0;displayFt=0;magnitudeImage=1;shuffle=0;ftSize=256;size=256;offset=0;cnt=1;ndx=0;procnoPath="/opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/6/pdata/1/";displayObjects=18;modalityType=1;innerObjects=1728;outerObjects=1;average=1;numRecs=1;overlayCurves=0;innerWeights=\<ACQ_ScanInnerAccumWeights[0]\>;}>) (<job0>, 0, <RecoCastFilter CastToIntMain{dataRep=SIGNED;wordSize=4}>) (<job0>, 0, <RecoTeeFilter TeeStorage>) (<input>, 0, <RecoFileSource FS0{initFromRawJob=0;procDim=1;numChan=1;contData=true;}>) (<input>, 0, <RecoSharedQueueSink JQ0{queueId=Job_Out0;appendPsId=true;initQueue=true;}>) (<compute>, 0, <RecoSharedQueueSource Q0{initFromJob=0;queueId=Job_Out0;appendPsId=true;}>) (<compute>, 0, <RecoBufferSink S0{procDim=1;frameDim=2;bufferId="FIRSTPASS0";memId="out0"}>) (<compute>, 0, <RecoCastFilter CAST0{dataRep=FLOAT; wordSize=8}>) (<compute>, 0, <RecoZfillFilter Z0{fixedSize=\<RECO_ft_size[0]\>; dataPosition=85; fillingPosition=0.5}>) (<compute>, 0, <RecoFTShiftFilter FTS0{frameDim=2; winDirection=0; shift=\<RECO_rotate[0]\>; exponent=1}>) (<compute>, 0, <RecoFTFilter FT0{direction=0; exponent=1}>) (<compute>, 0, <RecoSortFilter REORD0{sortDim=\<RecoSortDim\>; sortSize=\<RecoSortSize\>; sortRange=\<RecoSortRange\>; sortSegment=\<RecoSortSegment\>; sortMaps=\<RecoSortMaps\>; frameDim = 2}>) (<compute>, 1, <RecoBufferSource Q0{procDim=2;frameDim=2;bufferId="FIRSTPASS0";memId="out0"}>) (<compute>, 1, <RecoBufferSink S0{procDim=2;frameDim=2;bufferId="FTPASS10";memId="in0"}>) (<compute>, 1, <RecoFTShiftFilter FTS0{frameDim=2; winDirection=1; shift=\<RECO_rotate[1]\>; exponent=1}>) (<compute>, 1, <RecoFTFilter FT0{direction=1;exponent=1;}>) (<compute>, 2, <RecoBufferSource Q0{procDim=2;frameDim=2;bufferId="FTPASS10";memId="in0"}>) (<compute>, 2, <RecoBufferSink S0{procDim=2;frameDim=2;bufferId="PREPPASS0";memId="out0"}>) (<compute>, 2, <RecoPhasCorrFilter PHCORR00{winDirection=0; ph0=0.000000; ph1=180.000000}>) (<compute>, 2, <RecoPhasCorrFilter PHCORR10{winDirection=1; ph0=0.000000; ph1=180.000000}>) (<compute>, 2, <RecoScaleFilter SCALE0{scaleFactor=\<RecoScaleChan[0]\>; phaseOffset=\<RecoPhaseChan[0]\>}>) (<compute>, 2, <RecoMagnitudeFilter G0>) (<compute>, 2, <RecoMinMaxFilter M0{map_min=\<RECO_map_min\>;map_max=\<RECO_map_max\>;}>) (<compute>, 3, <RecoBufferSource Q0{procDim=2;frameDim=2;bufferId="PREPPASS0";memId="out0"}>) (<compute>, 3, <RecoSharedQueueSink S0{initQueue=true;queueId=RecoComp_Out;appendPsId=true;}>) (<compute>, 3, <RecoMapFilter MAP0{symmetricMode=true;minima=\<RECO_minima\>;maxima=\<RECO_maxima\>;slope=\<RECO_map_slope\>;offset=\<RECO_map_offset\>;map_min=\<RECO_map_min\>;map_max=\<RECO_map_max\>;rangeMin=-32766.500000;rangeMax=32766.500000;perObjectMode=false;cutoffMode=true;}>) (<compute>, 3, <RecoCastFilter CAST0{dataRep=SIGNED;wordSize=2}>) (<output>, 3, <RecoSharedQueueSource Q{queueId=RecoComp_Out;appendPsId=true;procDim=2;initFromRECO=true;}>) (<output>, 3, <RecoImageDisplayFilter DISP{showAll=1;selectedFrame=\<RecoDisplayFrame\>;modalityType=1;procnoPath="/opt/PV-360.3.6/data/neuro/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/6/pdata/1/";}>) (<output>, 3, <RecoFileSink S{writePars=true;shuffle=false;filename="2dseq";numChans=1;}>)
+##$RecoStageNrEdges=28
+##$RecoStageEdges=( 28 )
+(<job0>, 0, <Q0-\>PM>) (<job0>, 0, <PM-\>CastToFloatMain>) (<job0>, 0, 
+<CastToFloatMain-\>Av>) (<job0>, 0, <Av-\>CastToIntMain>) (<job0>, 0, 
+<CastToIntMain-\>TeeStorage>) (<job0>, 0, <TeeStorage-\>QS>) (<job0>, 0, 
+<TeeStorage-\>FS>) (<input>, 0, <FS0-\>JQ0>) (<compute>, 0, <Q0-\>CAST0>) 
+(<compute>, 0, <CAST0-\>Z0>) (<compute>, 0, <Z0-\>FTS0>) (<compute>, 0, 
+<FTS0-\>FT0>) (<compute>, 0, <FT0-\>REORD0>) (<compute>, 0, <REORD0-\>S0>) 
+(<compute>, 1, <Q0-\>FTS0>) (<compute>, 1, <FTS0-\>FT0>) (<compute>, 1, 
+<FT0-\>S0>) (<compute>, 2, <Q0-\>PHCORR00>) (<compute>, 2, 
+<PHCORR00-\>PHCORR10>) (<compute>, 2, <PHCORR10-\>SCALE0>) (<compute>, 2, 
+<SCALE0-\>G0>) (<compute>, 2, <G0-\>M0>) (<compute>, 2, <M0-\>S0>) (<compute>,
+ 3, <Q0-\>MAP0>) (<compute>, 3, <MAP0-\>CAST0>) (<compute>, 3, <CAST0-\>S0>) 
+(<output>, 3, <Q-\>DISP>) (<output>, 3, <DISP-\>S>)
+##$ACQ_SetupRecoDisplay=Yes
+##$ACQ_SetupImageType=MAGNITUDE_IMAGE
+##$RecoDisplay=Yes
+##$RecoEachNR=No
+##$RecoPrototype=No
+##$RecoGradientLinearityCorrection=No
+##$RecoGradientLinearityCorrectionDebug=1
+##$RecoGradientLinearityCorrectionApprox=No
+$$ @vis= RECO RECO_INSTANCE RECO_fov RECO_size RecoAutoDerive RecoDim
+$$ @vis= RecoSpatDim RecoObjectsPerRepetition RecoObjectsPerSetupStep
+$$ @vis= RecoSortObjectsPerRepetition RecoNumRepetitions RecoNumOutputChan
+$$ @vis= RecoDescriptionInSliceCount RecoDescriptionSliceCount
+$$ @vis= RecoDescriptionOutSliceCount RecoEncodingOuterRepetitions
+$$ @vis= RecoEncodingFrames RecoRepetitionGroupSize RECO_inp_order
+$$ @vis= RECO_inp_size RECO_ft_size RECO_wdw_mode RECO_ft_mode RECO_pc_mode
+$$ @vis= RECO_pc_lin RECO_rotate RECO_transposition RECO_image_type
+$$ @vis= RECO_wordtype RECO_map_mode RECO_byte_order RecoModeUser
+$$ @vis= RecoUserUpdate RecoB0DemodOff RecoWindow RecoFTOrder
+$$ @vis= RecoHalfFTAlgorithm RecoHalfFT RecoHalfFTPos RecoHalfFTAcq RecoNoFT
+$$ @vis= RecoExportSortedData RecoCorrPhase RecoCorrPhaseRef RecoMap
+$$ @vis= RecoNumInputChan RecoScaleChan RecoPhaseChan RecoCombineMode
+$$ @vis= RecoEncGenInt RecoSortGroup RecoSortDim RecoSortSize RecoSortRange
+$$ @vis= RecoSortSegment RecoSortMaps RecoGrappaGroup RecoGrappaAccelFactor
+$$ @vis= RecoGrappaAccelFactor2 RecoGrappaFirstRepOnly RecoGrappaCoefReps
+$$ @vis= RecoSliceGrappaAccelFactor RecoSliceGrappaBlipValue
+$$ @vis= RecoSliceGrappaOff RecoGrappa3D RecoGrappaCaipirinha
+$$ @vis= RecoGrappaTCaipirinha RecoGrappaOne RecoSegGrappa
+$$ @vis= RecoSegGrappaCalibrateFromB0 RecoSegGrappaInt RecoSegGrappaSegments
+$$ @vis= RecoItGrappa RecoCSGroup RecoCS RecoNNGroup RecoNnDenoising
+$$ @vis= RecoNnCpuOnly RecoNnParallelProcessing RecoNnDifferenceMode
+$$ @vis= RecoNnPatchSizeMax RecoNnNdIso RecoNnPatchBorder RecoNnDenoisingLevel
+$$ @vis= RecoNnDataConsistency RecoNnDataConsistencyCenter
+$$ @vis= RecoNnDataConsistencyRatio RecoNnDataConsistencyCenterRatio
+$$ @vis= RecoNnDenoisingPre RecoNnDenoisingLevelPre RecoNnDataConsistencyPre
+$$ @vis= RecoNnDataConsistencyCenterPre RecoNnDataConsistencyRatioPre
+$$ @vis= RecoNnDataConsistencyCenterRatioPre RecoRegridNGroup RecoRegridN
+$$ @vis= RecoStageGroup RecoStageNrPasses RecoStagePasses RecoStageNrNodes
+$$ @vis= RecoStageNodes RecoStageNrEdges RecoStageEdges RECO_GS
+$$ @vis= ACQ_SetupRecoDisplay ACQ_SetupImageType RECO_GO RecoDisplay
+$$ @vis= RecoEachNR RecoPrototype RecoGradientLinearityCorrection
+$$ @vis= RecoGradientLinearityCorrectionDebug
+$$ @vis= RecoGradientLinearityCorrectionApprox
+##END=
+$$ File finished by PARX at 2026-03-13 14:27:24.188 +0900

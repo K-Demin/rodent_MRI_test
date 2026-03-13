@@ -1,0 +1,830 @@
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+# 1 "<built-in>"
+# 1 "<command-line>"
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+;==============================================================
+;=
+;= $Source$
+;=
+;= A multi gradient echo pulseprogram
+;=
+;= $Id$
+;==============================================================
+
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include" 1
+;****************************************************************
+;
+; Copyright (c) 2018-2021
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+;
+;****************************************************************
+
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl" 1
+;Avance4.incl
+;   for AV 4
+;
+;avance-version (16/08/18)
+;
+;$CLASS=Common Incl
+;$COMMENT=
+
+
+# 19 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+;setrtp0 denotes TimingController
+
+
+# 50 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+# 51 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+
+
+# 63 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+# 89 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+# 90 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+
+
+# 123 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+;#define LOWQ
+;#define HIGHQ
+
+
+;#define MIX_UP
+;#define MIX_DOWN
+# 136 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Avance.incl"
+;$Id:$
+# 15 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include" 2
+
+
+define delay adcEndInfoTagDel
+define delay rde1
+# 20 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+"rde1=de-de1"
+
+
+; Remark:  is the string concatenation mode for cpp with traditional option
+# 27 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+	
+
+
+	
+subroutine InitGradients
+subroutine InitDevices_NoGradients
+subroutine InitDevices
+subroutine UpdateDynPars_30s
+subroutine SetupGoTo
+subroutine AdcEnd_InfoTag
+# 13 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg" 2
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2003-2007
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; Declaration of pulseprogram parameters and subroutines for 
+; preparation  modules
+;
+; Must be included after MRI.include!
+;
+;****************************************************************
+
+;**** Fat Suppression ****
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FatSup.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; FatSup.mod : Declaration of Fat Suppression Subroutine
+;
+;****************************************************************
+
+if (PVM_FatSupPerform == Yes)
+{
+  define pulse           fatSupPul   = {$PVM_FatSupRfLength}
+  define list<frequency> fatSupList  = {$PVM_FatSupFL}
+  
+  define delay fatSupRamp  = {$PVM_FatSupRampTime}
+  define delay fatSupWait  = {$PVM_FatSupGradWait}
+  define delay fatSupSpoil = {$PVM_FatSupSpoilDur}
+
+  ; convert from ms to s
+  "fatSupRamp  = fatSupRamp  / 1000"
+  "fatSupWait  = fatSupWait  / 1000"
+  "fatSupSpoil = fatSupSpoil / 1000"
+}
+subroutine FatSup
+# 21 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Flow Saturation ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FlowSat.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; FlowSat.mod: Declaration of subroutines for Flow Saturation 
+; call
+; subr FlowSat()
+; subr FlowSatInit()
+; subr FlowSatInc()
+; 
+;****************************************************************
+
+if(PVM_InFlowSatOnOff == 1)
+{
+define list<frequency> modlis4 = {$PVM_InFlowSatFL}
+define list<grad_scalar> flowSatGrad={$PVM_InFlowSatGrad}
+
+define delay SfD0 = {$PVM_SfD0}
+define delay SfD2 = {$PVM_SfD2}
+# 27 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FlowSat.mod"
+define pulse SfP0 = {$PVM_SfP0}
+define loopcounter SfLp0 = {$PVM_SfLp0}
+}
+
+
+subroutine FlowSat
+subroutine FlowSatInc
+subroutine FlowSatInit
+# 25 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Saturation Transfer ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/SatTrans.mod" 1
+;****************************************************************
+; $Source$
+;
+; Copyright (c) 2023
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+;
+; SatTrans.mod: Declaration of subroutine for Saturation transfer 
+; call
+; subr SatTrans()
+;
+; $Id$
+;****************************************************************
+;**** Saturation Transfer Module ****
+
+
+; PVM_SatTransFL:        List of offset frequencies to be measured.
+; PVM_SattransNPulses:   Number of pulses used in one saturation event
+; PVM_SattransPowerList: List of RF amplitudes for saturation pulses.
+;                        Two elements long: first element: 0 Watt,
+;                        used for one reference scan. Subsequent scans
+;                        use amplitude as specified in UI.
+; StRepCntr:             If Reference Scan is 'On' two power switch cmds
+;                        are required: before & after RefScan. Incrementing
+;                        counter with repetitions and resetting it to zero
+;                        when StReps is reached, this happens for cntr vals
+;                        0 & 1.
+# 32 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/SatTrans.mod"
+if(PVM_SatTransOnOff)
+{
+  define list<frequency> modlis5    = {$PVM_SatTransFL}
+  define list<power> StRfPower      = {$PVM_SatTransPowerList}
+             
+  define delay StD0                 = {$PVM_StD0}
+  define delay StD1                 = {$PVM_StD1}
+  define delay StD2                 = {$PVM_StD2}
+  define delay StD3                 = {$PVM_StD3}
+
+  define pulse StP0                 = {$PVM_StP0}
+
+  define loopcounter StNPulses      = {$PVM_SatTransNPulses}
+  define loopcounter StReps         = {$PVM_SatTransRepetitions}
+# 47 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/SatTrans.mod"
+  define loopcounter StRepCntr
+  "StRepCntr = 0"
+}
+
+subroutine SatTransInit
+
+subroutine SatTransInc
+subroutine SatTrans
+# 29 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;*** FOV Saturation ***
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FovSat.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; FovSat.mod : Declaration of FOV Saturation subroutine
+; call: subr FovSat()
+;
+;****************************************************************
+
+
+if (PVM_FovSatOnOff == On)
+{
+  define pulse           fovSatPul   = {$PVM_FovSatRfLength}
+  define list<frequency> fovSatList  = {$PVM_FovSatFL}
+  
+  define delay fovSatRamp  = {$PVM_FovSatRampTime}
+  define delay fovSatWait  = {$PVM_FovSatGradWait}
+  define delay fovSatSpoil = {$PVM_FovSatSpoilDur}
+# 26 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FovSat.mod"
+  ; convert from ms to s
+  "fovSatRamp  = fovSatRamp  / 1000"
+  "fovSatWait  = fovSatWait  / 1000"
+  "fovSatSpoil = fovSatSpoil / 1000"  
+}
+
+subroutine FovSat
+
+# 33 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Black Blood ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/BlBlood.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; BlBlood.mod : Declaration of Black blood  subroutine
+;
+; call
+; subr BlBlood(ph0) : Black blood preparation with RF phaselist
+;                     ph0
+;
+;****************************************************************
+
+if(PVM_BlBloodOnOff)
+{
+define list<frequency> modlis8 = {$PVM_BlBloodFL}
+define delay BlbD0 = {$PVM_BlbD0}
+define delay BlbD1 = {$PVM_BlbD1}
+define delay BlbD2 = {$PVM_BlbD2}
+
+define pulse BlbP0 = {$PVM_BlbP0}
+}
+subroutine BlBlood
+# 37 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Trigger ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Trigger.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+;
+; Trigger.mod - Trigger Module
+;
+;****************************************************************
+
+if (PVM_TriggerModule == On)
+{
+  define delay trigDur = {$PVM_TriggerDur}
+  define delay trigDel = {$PVM_TriggerDelay}
+
+  ; convert from ms to s
+  "trigDur = trigDur / 1000"
+  "trigDel = trigDel / 1000"
+}
+subroutine Trigger
+subroutine TriggerPhase
+subroutine TriggerSlice
+# 41 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Trigger Out ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/TriggerOut.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+; $Id$
+;****************************************************************
+
+if (PVM_TriggerOutOnOff == On)
+{
+  define delay trigOutDur = {$PVM_TriggerOutDur}
+  define delay trigOutDel = {$PVM_TriggerOutDelay}
+
+  ; convert from ms to s
+  "trigOutDur = trigOutDur / 1000"
+  "trigOutDel = trigOutDel / 1000"
+}
+subroutine TriggerOut
+subroutine TriggerOutStart
+subroutine TriggerOutSlice
+subroutine TriggerOutVolume
+# 45 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Outer Volume Suppression ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/WsOvs.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; WsOvs.mod: Declaration of water suppression and Outer 
+;            volume suppression subroutines
+;
+; call 
+; subr Ovs(ph0) ;  execution of OVS with ph0 phaselist
+;
+; subr WsOvs(ph0,ph1) : execution of OVS with ph0 and WS with ph1
+;                       phaselist
+;****************************************************************
+
+;**** OuterVolumeSuppression ****
+
+if(PVM_OvsOnOff == 1)
+{
+define list<frequency> Ovslist={$PVM_OvsFrequencyList}
+define delay OvsD0 = {$PVM_OvsD0}
+define delay OvsD1 = {$PVM_OvsD1}
+define pulse OvsP0 = {$PVM_OvsP0}
+}
+subroutine Ovs
+# 62 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/WsOvs.mod"
+;*** WaterSuppression Module with OVS ****
+
+if (PVM_WsMode)
+{
+
+define list<frequency> Wslist={$PVM_WsOffsetHz}
+define pulse WsP0 = {$PVM_WsP0}
+define pulse WsP1 = {$PVM_WsP1}
+define pulse WsP2 = {$PVM_WsP2}
+define delay WsNp0 
+"WsNp0 = WsP0"
+define delay WsNp1 
+"WsNp1 = WsP1"
+define delay WsNp2 
+"WsNp2 = WsP2"
+define list<delay> ChD1={$PVM_ChppgD1}
+define list<delay> ChD2={$PVM_ChppgD2}
+define list<delay> VpD1={$PVM_VpppgD1}
+define list<delay> VpD2={$PVM_VpppgD2}
+# 82 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/WsOvs.mod"
+}
+
+
+subroutine WsOvsMain
+subroutine WsOvs
+subroutine Ws
+# 49 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Solvent Suppression module ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/WsSat.mod" 1
+;******************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$ 
+;
+; All Rights Reserved
+;
+; WsSat.mod - Declaration of water suppression and FOV saturation 
+;             subroutines
+; call
+; subr WsSat(ph0) : execution of WS with ph0 phaselist and 
+;                   FOV saturation (as passed as argument)    
+;      
+;*******************************************************************
+
+
+; Definitions for WsPpgParams are included in WsOvs.mod
+subroutine WsSatMain
+subroutine WsSat
+# 53 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Selective Inversion Recovery ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/SliceSelIr.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; SlicelSelIr.mod : declaration of slice Selective Inversion 
+;                   Recovery subroutine
+; call SliceSelIr()
+; 
+;
+;****************************************************************
+
+
+if(PVM_SelIrOnOff)
+{
+  define list<frequency> IrFL = {$PVM_SelIrFL} 
+  define delay IrD0 = {$PVM_SelIrD0} ; PVM_InterInvDelay
+  define delay IrD1 = {$PVM_SelIrD1} ; PVM_InterInvEndDelay[0]
+  define delay IrD2 = {$PVM_SelIrD2} ; Spoiler duration
+  define delay IrD4 = {$PVM_SelIrD4} ; risetime
+# 27 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/SliceSelIr.mod"
+  define pulse IrP0 = {$PVM_SelIrP0}
+  define loopcounter IrL0 = {$PVM_SelIrL0}
+  define loopcounter IrL1
+}
+
+subroutine SliceSelIr
+
+# 57 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Tagging ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Tagging.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2007
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; Tagging.mod : Declaration of tagging subroutine
+; call
+; subr Tagging()
+;
+;****************************************************************
+
+if(PVM_TaggingOnOff)
+{
+define list<frequency> taggfreq={$PVM_TaggingFL}
+
+define delay TaggD0 = {$PVM_TaggingD0}
+define delay TaggD1 = {$PVM_TaggingD1}
+define delay TaggD2 = {$PVM_TaggingD2}
+define delay TaggD3 = {$PVM_TaggingD3}
+define delay TaggD4 = {$PVM_TaggingD4}
+# 27 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Tagging.mod"
+define pulse TaggP0 = {$PVM_TaggingP0}
+define loopcounter TaggL0 = {$PVM_TaggingLp0}
+}
+
+subroutine Tagging
+
+# 61 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Noe ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Noe.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; $Id$
+;
+; All Rights Reserved
+;
+; Noe.mod: Declaration of Nuclear Overhouser Enhancement 
+;             subroutine
+; call
+; subr Noe()
+;
+;****************************************************************
+
+if(PVM_NoeOnOff == On)
+{
+define delay NoeD0 = {$PVM_NoeD0}
+define delay NoeD1 = {$PVM_NoeD1}
+}
+
+subroutine Noe
+# 65 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Evolution ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Evolution.mod" 1
+;****************************************************************
+;
+; Copyright (c) 2018
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+;
+; Evolution.mod - Evolution Module
+;
+;****************************************************************
+
+if (PVM_EvolutionOnOff == On)
+{
+  define delay       evolDel  = {$PVM_EvolutionDelay}
+  define list<delay> evolTime = {$PVM_EvolutionTime}
+}
+
+subroutine Evolution
+# 69 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+
+;**** Drift Compensation ****
+
+# 1 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/DriftComp.mod" 1
+;==========================================================
+;   subroutine for drift compensation
+;==========================================================
+
+
+if (PVM_DriftCompNavOnOff == On)
+{
+  define list<frequency> tx_drift_fq = {$PVM_DriftCompNavTxFrq}
+  define list<frequency> rx_drift_fq = {$PVM_DriftCompNavRxFrq}
+  define pulse DCP0 = {$PVM_DriftCompNavP0}     
+  define delay DCD1 = {$PVM_DriftCompNavD1}
+  define delay DCD2 = {$PVM_DriftCompNavD2}
+  define delay DCD3 = {$PVM_DriftCompNavD3}
+  define delay DCD4 = {$PVM_DriftCompNavD4}
+  define delay DCD5 = {$PVM_DriftCompNavD5}
+  define delay DCD6
+  "DCD6 = 20u - de"
+  define list<phase> dcph = { 0 }
+}
+subroutine DriftComp
+# 73 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/PrepModulesHead.mod" 2
+# 14 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg" 2
+
+;===========================================================
+;   definition of delays
+;===========================================================
+
+define delay denab
+"denab =  d24 - de"
+# 22 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+define delay d4m40u
+"d4m40u = d4 - 40u"
+
+define delay d5m10u
+"d5m10u = d5 - 10u"
+
+define loopcounter lds = {$PVM_DummyScans}
+"l3 = l0 + lds"
+# 34 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+define list<frequency> freqTx1 = {$ACQ_O1_list}
+define list<frequency> freqTx2 = {$ACQ_O2_list}
+define list<frequency> freqRx = {$ACQ_O1B_list}
+
+grad_zero_for_gs <ACQ_spatial_phase_1, ACQ_spatial_phase_2>
+
+subroutine FieldMap
+# 99 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+;===========================================================
+;   declaration of 2d and 3d loop
+;===========================================================
+
+subr InitDevices
+;EXEC_begin InitDevices InitDevices()
+# 75 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+ 
+    
+;EXEC_begin InitGradients InitGradients()
+# 60 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+ 
+    define list <grad_index> xyzb0 = {0 1 2 3}
+    1m sync_grad 100
+    10u ctrlgrad 0  
+    1m shim_off  
+ 
+;EXEC_end   InitGradients
+# 77 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+    
+;EXEC_begin InitDevices_NoGradients InitDevices_NoGradients()
+# 69 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+ 
+    2u h2pulse       ;SEL_2H plus interleave_incr
+ 
+;EXEC_end   InitDevices_NoGradients
+# 78 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+ 
+;EXEC_end   InitDevices
+# 104 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+
+dsl,         ACQ_spatial_phase_1.dec
+      lo to dsl times PVM_DummyScans
+# 108 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+start,
+        subr TriggerPhase
+;EXEC_begin TriggerPhase TriggerPhase()
+# 33 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Trigger.mod"
+ 
+  if (PVM_TriggerMode == per_PhaseStep)
+  {
+    
+;EXEC_begin Trigger Trigger()
+# 24 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Trigger.mod"
+ 
+  if (PVM_TriggerModule == On)
+  {
+    trigDur     trignl1
+    trigDel
+  }
+ 
+;EXEC_end   Trigger
+# 37 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Trigger.mod"
+  }
+ 
+;EXEC_end   TriggerPhase
+# 110 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+
+slice,       subr UpdateDynPars_30s
+;EXEC_begin UpdateDynPars_30s UpdateDynPars_30s()
+# 82 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+ 
+    29.8u switch_realtime_tables
+     0.1u update_interactive_parameters
+     0.1u blockrequest
+ 
+;EXEC_end   UpdateDynPars_30s
+# 112 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+        subr TriggerSlice
+;EXEC_begin TriggerSlice TriggerSlice()
+# 41 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Trigger.mod"
+ 
+  if (PVM_TriggerMode == per_Slice)
+  {
+    
+;EXEC_begin Trigger Trigger()
+# 24 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Trigger.mod"
+ 
+  if (PVM_TriggerModule == On)
+  {
+    trigDur     trignl1
+    trigDel
+  }
+ 
+;EXEC_end   Trigger
+# 45 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/Trigger.mod"
+  }
+ 
+;EXEC_end   TriggerSlice
+# 113 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+        subr FovSat
+;EXEC_begin FovSat FovSat()
+# 33 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FovSat.mod"
+ 
+  if (PVM_FovSatOnOff == On)
+  {
+                 5u   PVM_FovSatGrad.res
+                 5u   fovSatList.res
+
+    fov18, fovSatRamp   grad_ramp<magnet_coord>{PVM_FovSatGrad[]} fovSatList:f1
+         (fovSatPul   :sp41):f1
+        fovSatSpoil   grad_ramp{0, 0, PVM_FovSatSpoilAmp}
+                 0u   fovSatList.inc
+                 0u   PVM_FovSatGrad.inc        
+    lo to fov18 times PVM_FovSatNSlices
+         
+         fovSatRamp   grad_off
+         fovSatWait
+  }
+ 
+;EXEC_end   FovSat
+# 114 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+        subr FatSup
+;EXEC_begin FatSup FatSup()
+# 31 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FatSup.mod"
+ 
+  if (PVM_FatSupPerform == Yes)
+  {
+           10u       fatSupList:f1
+    (fatSupPul       :sp40):f1
+   fatSupSpoil       grad_shape {0, 0, PVM_FatSupSpoilAmp}
+    fatSupRamp       grad_off
+    fatSupWait
+  }
+ 
+;EXEC_end   FatSup
+# 115 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+        subr FieldMap
+;EXEC_begin FieldMap FieldMap(any rps_coord)
+# 42 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+ 
+         d1             freqTx1:f1       grad_ramp<rps_coord>{0, 0, g0}
+        (p0:sp0         ph1):f1
+         d3             grad_ramp<rps_coord>{g2, ACQ_spatial_phase_1*g3, g1+ACQ_spatial_phase_2*g4}
+     d5m10u             freqTx2:f1       grad_off
+        10u
+
+ if (PVM_NEchoImages > 1)
+ {
+  echo19, 10u             freqRx(receive):f1
+      denab             grad_ramp<rps_coord>{g5, 0, 0}
+                        (rde1 de1 adc_job0   ph1 syrec_job0 ) (1u 1u   ph0:r):f_job0
+   aq_job0            dwgen_job0
+         d7             grad_off
+         d8             grad_ramp<rps_coord>{g9, 0, 0}
+     d4m40u             grad_off
+        40u             eoscnpzbwrif_job0
+         d9
+      lo to echo19 times l8
+ }
+
+        10u             freqRx(receive):f1
+      denab             grad_ramp<rps_coord>{g5, 0, 0}
+                        (rde1 de1 adc_job0   ph1 syrec_job0 ) (1u 1u   ph0:r):f_job0
+   aq_job0            dwgen_job0
+         d3             grad_ramp<rps_coord>{g8, ACQ_spatial_phase_1*g6, ACQ_spatial_phase_2*g7}
+         d6             grad_ramp<rps_coord>{g8, 0, 0}
+     d4m40u             grad_off
+        40u             eoscnpzbwrif_job0
+         d0
+
+         0u             grad_matrix.inc
+         0u             freqTx1.inc
+         0u             freqTx2.inc
+         0u             freqRx.inc
+
+      lo to slice times NSLICES
+         0u             ipp1
+         0u             grad_matrix.res
+
+      lo to start times NA
+         0u             rpp1
+         0u             ACQ_spatial_phase_1.inc
+
+      lo to start times l3
+         0u             ACQ_spatial_phase_2.inc
+
+                        "l3 = l0"
+
+      lo to start times l1
+
+      lo to start times NAE
+
+  
+;EXEC_begin SetupGoTo SetupGoTo(any start)
+# 90 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/MRI.include"
+ 
+    if (ACQ_scan_type != Scan_Experiment)
+    {
+        goto start
+    }
+ 
+;EXEC_end   SetupGoTo
+# 96 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+ 
+;EXEC_end   FieldMap
+# 116 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+
+exit
+# 119 "/root/.topspin-BladeEpu/local_acqu/tuneDirs/20260313_135901_Kostya_260413_fiber_placement_engrams_1_13/900000/lists/pp/FieldMap.ppg"
+;============================================================
+;phase lists
+
+ph0 = 0
+ph1 = 0 2 1 3
+;============================================================

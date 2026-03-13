@@ -1,0 +1,57 @@
+;****************************************************************
+;
+; $Source$
+;
+; Copyright (c) 2017
+; Bruker BioSpin GmbH & Co. KG
+; D-76275 Ettlingen, Germany
+;
+; All Rights Reserved
+;
+; $Id$
+;
+;****************************************************************
+
+#include <MRI.include>
+#include <PrepModulesHead.mod>
+#include <demagnetize.mod>
+
+define list<frequency> freqRx = {$ACQ_O1B_list}
+define list<frequency> freqTx = {$ACQ_O1_list}
+
+define delay denab
+"denab = 50u - de"
+
+INIT_DEVICES
+
+           subr DeMagnetize()
+start,          UPDATE_DYN_PARS_30u
+       10u      freqRx(receive):f1
+           subr TriggerPhase()
+       10u      freqTx:f1
+        0u      freqRx.inc
+
+       (p0:sp0  ph0):f1
+     denab      freqTx.inc
+
+                ADC_INIT_(job0, ph0, ph1)
+  AQ_(job0)     ADC_START_(job0)
+
+        5m
+       10u      ADC_END_(job0)
+        d0
+
+    lo to start times NI
+        0u      ipp0
+        0u      ipp1
+
+    lo to start times NA
+        0u      rpp0
+        0u      rpp1
+
+SETUP_GOTO(start)
+
+exit
+ph0 = 0
+ph1 = 0
+
