@@ -25,6 +25,12 @@ Use `run_neuro_analysis.py` when you want one command that takes folders and run
 - writes one `summary.json` report,
 - optionally computes a **DG proxy** from SPM gray-matter segmentation (centroids of posterior left/right gray-matter clusters).
 
+Rodent-focused defaults:
+
+- `--species mouse` is the default and enables AFNI rodent skull-strip flags.
+- SPM is **skipped** for mouse/rat unless you provide `--spm-tpm /path/to/rodent_TPM.nii`.
+- only 3D NIfTI volumes are processed (4D or hidden/env files are skipped).
+
 Example (full loop):
 
 ```bash
@@ -32,6 +38,7 @@ python3 run_neuro_analysis.py \
   --input-root /data/nii \
   --backend both \
   --spm-dir /opt/spm12 \
+  --spm-tpm /data/atlas/mouse_TPM.nii \
   --out-dir analysis_out
 ```
 
@@ -44,7 +51,7 @@ python3 run_neuro_analysis.py --input-root /data/nii --backend afni --out-dir af
 SPM-only:
 
 ```bash
-python3 run_neuro_analysis.py --input-root /data/nii --backend spm --spm-dir /opt/spm12 --out-dir spm_out
+python3 run_neuro_analysis.py --input-root /data/nii --backend spm --spm-dir /opt/spm12 --spm-tpm /data/atlas/mouse_TPM.nii --out-dir spm_out
 ```
 
 ### Where to get NIfTI files
@@ -72,4 +79,5 @@ Manual conversion is still supported with tools such as:
 Notes:
 - AFNI backend requires AFNI binaries in `PATH`.
 - SPM backend requires MATLAB (or SPM standalone launcher) and a valid SPM installation.
+- For rodents, provide rodent TPM via `--spm-tpm` and prefer `--spm-affreg none`.
 - DG output is a segmentation-derived proxy, not an atlas-validated dentate gyrus segmentation.

@@ -19,6 +19,10 @@ import textwrap
 from pathlib import Path
 
 
+def _is_hidden_or_env_path(path: Path) -> bool:
+    return any(part.startswith(".") for part in path.parts)
+
+
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
     print("+", " ".join(cmd))
     subprocess.run(cmd, cwd=cwd, check=True)
@@ -34,11 +38,25 @@ def _require_cmd(name: str) -> None:
 
 def _find_t2_niftis(root: Path) -> list[Path]:
     all_nifti = sorted([*root.rglob("*.nii"), *root.rglob("*.nii.gz")])
+    all_nifti = [p for p in all_nifti if not _is_hidden_or_env_path(p.relative_to(root))]
     if not all_nifti:
         return []
 
     t2 = [p for p in all_nifti if "t2" in p.name.lower() or "rare" in p.name.lower()]
     return t2 or all_nifti
+
+
+def _is_3d_nifti(path: Path) -> bool:
+    try:
+        import nibabel as nib
+    except Exception:
+        return True
+
+    try:
+        shape = nib.load(str(path)).shape
+    except Exception:
+        return False
+    return len(shape) == 3
 
 
 def _looks_like_bruker_root(root: Path) -> bool:
@@ -162,7 +180,7 @@ def _convert_bruker_to_nifti(
     return _find_t2_niftis(converted_dir)
 
 
-def run_afni(input_nii: Path, out_dir: Path) -> dict[str, str]:
+def run_afni(input_nii: Path, out_dir: Path, species: str) -> dict[str, str]:
     required = ["3dcopy", "3dcalc", "3dAutomask", "3dUnifize", "3dSkullStrip"]
     for cmd in required:
         _require_cmd(cmd)
@@ -178,7 +196,10 @@ def run_afni(input_nii: Path, out_dir: Path) -> dict[str, str]:
     _run(["3dAutomask", "-prefix", str(automask), str(unifized)])
 
     skullstrip = out_dir / "brain_ss.nii.gz"
-    _run(["3dSkullStrip", "-input", str(unifized), "-prefix", str(skullstrip)])
+    skullstrip_cmd = ["3dSkullStrip", "-input", str(unifized), "-prefix", str(skullstrip)]
+    if species in {"mouse", "rat"}:
+        skullstrip_cmd.extend(["-rat", "-push_to_edge"])
+    _run(skullstrip_cmd)
 
     masked = out_dir / "brain_masked.nii.gz"
     _run(
@@ -204,7 +225,7 @@ def run_afni(input_nii: Path, out_dir: Path) -> dict[str, str]:
     }
 
 
-def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path) -> Path:
+def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path, tpm_path: Path, affreg: str) -> Path:
     batch = textwrap.dedent(
         f"""
         addpath('{spm_dir.as_posix()}');
@@ -216,7 +237,7 @@ def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path) -> Path:
         matlabbatch{{1}}.spm.spatial.preproc.channel.biasfwhm = 60;
         matlabbatch{{1}}.spm.spatial.preproc.channel.write = [1 1];
 
-        tpm = fullfile('{spm_dir.as_posix()}', 'tpm', 'TPM.nii');
+        tpm = '{tpm_path.as_posix()}';
         for k = 1:6
             matlabbatch{{1}}.spm.spatial.preproc.tissue(k).tpm = {{sprintf('%s,%d', tpm, k)}};
             matlabbatch{{1}}.spm.spatial.preproc.tissue(k).ngaus = 1;
@@ -227,7 +248,7 @@ def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path) -> Path:
         matlabbatch{{1}}.spm.spatial.preproc.warp.mrf = 1;
         matlabbatch{{1}}.spm.spatial.preproc.warp.cleanup = 1;
         matlabbatch{{1}}.spm.spatial.preproc.warp.reg = [0 0.001 0.5 0.05 0.2];
-        matlabbatch{{1}}.spm.spatial.preproc.warp.affreg = 'mni';
+        matlabbatch{{1}}.spm.spatial.preproc.warp.affreg = '{affreg}';
         matlabbatch{{1}}.spm.spatial.preproc.warp.fwhm = 0;
         matlabbatch{{1}}.spm.spatial.preproc.warp.samp = 3;
         matlabbatch{{1}}.spm.spatial.preproc.warp.write = [1 1];
@@ -243,7 +264,14 @@ def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path) -> Path:
     return batch_path
 
 
-def run_spm(input_nii: Path, out_dir: Path, spm_dir: Path, matlab_cmd: str) -> dict[str, str]:
+def run_spm(
+    input_nii: Path,
+    out_dir: Path,
+    spm_dir: Path,
+    matlab_cmd: str,
+    tpm_path: Path,
+    affreg: str,
+) -> dict[str, str]:
     if not spm_dir.exists():
         raise SystemExit(f"SPM directory does not exist: {spm_dir}")
 
@@ -251,7 +279,13 @@ def run_spm(input_nii: Path, out_dir: Path, spm_dir: Path, matlab_cmd: str) -> d
     _require_cmd(matlab)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    batch_path = _write_spm_batch(input_nii=input_nii, out_dir=out_dir, spm_dir=spm_dir)
+    batch_path = _write_spm_batch(
+        input_nii=input_nii,
+        out_dir=out_dir,
+        spm_dir=spm_dir,
+        tpm_path=tpm_path,
+        affreg=affreg,
+    )
 
     if matlab == "matlab":
         _run(["matlab", "-batch", f"run('{batch_path.as_posix()}')"])
@@ -319,6 +353,9 @@ def _run_single(
     backend: str,
     spm_dir: Path,
     matlab_cmd: str,
+    species: str,
+    spm_tpm: Path | None,
+    spm_affreg: str,
 ) -> dict:
     case_out = out_dir / nii.stem.replace(".nii", "")
     case_out.mkdir(parents=True, exist_ok=True)
@@ -326,14 +363,29 @@ def _run_single(
     result: dict[str, object] = {"input_nii": str(nii), "out_dir": str(case_out), "backend": backend}
 
     if backend in {"afni", "both"}:
-        result["afni"] = run_afni(nii, case_out / "afni")
+        result["afni"] = run_afni(nii, case_out / "afni", species=species)
 
     if backend in {"spm", "both"}:
-        spm_out = run_spm(nii, case_out / "spm", spm_dir=spm_dir, matlab_cmd=matlab_cmd)
-        result["spm"] = spm_out
-        dg = _estimate_dg_from_spm(Path(spm_out["gm"]))
-        if dg:
-            result["dg_proxy"] = dg
+        if species in {"mouse", "rat"} and spm_tpm is None:
+            result["spm"] = {
+                "status": "skipped",
+                "reason": "Mouse/rat SPM segmentation requires rodent TPM. Pass --spm-tpm explicitly.",
+            }
+        else:
+            tpm_to_use = spm_tpm or (spm_dir / "tpm" / "TPM.nii")
+            spm_out = run_spm(
+                nii,
+                case_out / "spm",
+                spm_dir=spm_dir,
+                matlab_cmd=matlab_cmd,
+                tpm_path=tpm_to_use,
+                affreg=spm_affreg,
+            )
+            result["spm"] = spm_out
+            dg = _estimate_dg_from_spm(Path(spm_out["gm"]))
+            if dg:
+                result["dg_proxy"] = dg
+                result["hippocampus_proxy"] = dg
 
     return result
 
@@ -344,6 +396,12 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--input-root", type=Path, required=True, help="Folder containing NIfTI scans")
+    p.add_argument(
+        "--species",
+        choices=["mouse", "rat", "human"],
+        default="mouse",
+        help="Target species; changes AFNI skull-strip and SPM defaults.",
+    )
     p.add_argument(
         "--backend",
         choices=["afni", "spm", "both"],
@@ -356,6 +414,18 @@ def main() -> None:
         "--matlab-cmd",
         default="matlab",
         help="MATLAB/SPM launcher command. For SPM standalone, provide wrapper command prefix.",
+    )
+    p.add_argument(
+        "--spm-tpm",
+        type=Path,
+        default=None,
+        help="Path to TPM NIfTI (for rodents, provide rodent TPM atlas).",
+    )
+    p.add_argument(
+        "--spm-affreg",
+        choices=["mni", "none", "subj", "eastern"],
+        default="none",
+        help="SPM affine regularization mode (rodent workflows usually use none).",
     )
     p.add_argument(
         "--input-nii",
@@ -394,6 +464,7 @@ def main() -> None:
         raise SystemExit(f"Input root not found: {args.input_root}")
 
     scans = args.input_nii or _find_t2_niftis(args.input_root)
+    scans = [p for p in scans if _is_3d_nifti(p)]
     if not scans:
         bruker_candidates = _bruker_input_candidates(args.input_root)
         can_attempt_bruker = any(_looks_like_bruker_root(candidate) for candidate in bruker_candidates)
@@ -422,6 +493,7 @@ def main() -> None:
     summary = {
         "input_root": str(args.input_root),
         "backend": args.backend,
+        "species": args.species,
         "auto_bruker_conversion": not args.no_convert_bruker,
         "cases": [],
     }
@@ -430,15 +502,24 @@ def main() -> None:
             print(f"Skipping missing file: {nii}")
             continue
         print(f"=== Processing: {nii}")
-        summary["cases"].append(
-            _run_single(
+        try:
+            case_result = _run_single(
                 nii=nii,
                 out_dir=args.out_dir,
                 backend=args.backend,
                 spm_dir=args.spm_dir,
                 matlab_cmd=args.matlab_cmd,
+                species=args.species,
+                spm_tpm=args.spm_tpm,
+                spm_affreg=args.spm_affreg,
             )
-        )
+        except subprocess.CalledProcessError as exc:
+            case_result = {
+                "input_nii": str(nii),
+                "status": "failed",
+                "error": str(exc),
+            }
+        summary["cases"].append(case_result)
 
     out_json = args.out_dir / "summary.json"
     out_json.write_text(json.dumps(summary, indent=2) + "\n")
