@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Run a real AFNI or SPM pipeline on MRI data.
+"""Closed-loop AFNI/SPM pipeline for rodent T2 MRI folders.
 
-This script is intentionally explicit about external requirements:
-- AFNI backend requires AFNI binaries in PATH (e.g. 3dUnifize, 3dSkullStrip).
-- SPM backend requires MATLAB (or MCR wrapper) plus an installed SPM toolbox.
-
-It does not try to re-implement those suites; it orchestrates them reproducibly.
+Given an input folder, this script can:
+1) discover candidate T2 NIfTI files,
+2) run AFNI and/or SPM preprocessing,
+3) derive a DG proxy coordinate from segmentation outputs,
+4) emit a single machine-readable summary file.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import textwrap
@@ -30,9 +31,17 @@ def _require_cmd(name: str) -> None:
         )
 
 
-def run_afni(input_nii: Path, out_dir: Path) -> None:
-    """Run a basic but proper AFNI preprocessing chain."""
-    required = ["3dcalc", "3dAutomask", "3dUnifize", "3dSkullStrip"]
+def _find_t2_niftis(root: Path) -> list[Path]:
+    all_nifti = sorted([*root.rglob("*.nii"), *root.rglob("*.nii.gz")])
+    if not all_nifti:
+        return []
+
+    t2 = [p for p in all_nifti if "t2" in p.name.lower() or "rare" in p.name.lower()]
+    return t2 or all_nifti
+
+
+def run_afni(input_nii: Path, out_dir: Path) -> dict[str, str]:
+    required = ["3dcopy", "3dcalc", "3dAutomask", "3dUnifize", "3dSkullStrip"]
     for cmd in required:
         _require_cmd(cmd)
 
@@ -64,26 +73,13 @@ def run_afni(input_nii: Path, out_dir: Path) -> None:
         ]
     )
 
-    if shutil.which("@chauffeur_afni"):
-        _run(
-            [
-                "@chauffeur_afni",
-                "-ulay",
-                str(unifized),
-                "-olay",
-                str(automask),
-                "-prefix",
-                str(out_dir / "qc_mask"),
-                "-montx",
-                "4",
-                "-monty",
-                "1",
-                "-set_xhairs",
-                "OFF",
-                "-label_mode",
-                "0",
-            ]
-        )
+    return {
+        "input": str(copied),
+        "unifized": str(unifized),
+        "mask": str(automask),
+        "skullstrip": str(skullstrip),
+        "masked": str(masked),
+    }
 
 
 def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path) -> Path:
@@ -98,7 +94,6 @@ def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path) -> Path:
         matlabbatch{{1}}.spm.spatial.preproc.channel.biasfwhm = 60;
         matlabbatch{{1}}.spm.spatial.preproc.channel.write = [1 1];
 
-        % Tissue classes (TPM.nii)
         tpm = fullfile('{spm_dir.as_posix()}', 'tpm', 'TPM.nii');
         for k = 1:6
             matlabbatch{{1}}.spm.spatial.preproc.tissue(k).tpm = {{sprintf('%s,%d', tpm, k)}};
@@ -126,8 +121,7 @@ def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path) -> Path:
     return batch_path
 
 
-def run_spm(input_nii: Path, out_dir: Path, spm_dir: Path, matlab_cmd: str) -> None:
-    """Run proper SPM tissue segmentation through MATLAB."""
+def run_spm(input_nii: Path, out_dir: Path, spm_dir: Path, matlab_cmd: str) -> dict[str, str]:
     if not spm_dir.exists():
         raise SystemExit(f"SPM directory does not exist: {spm_dir}")
 
@@ -142,14 +136,98 @@ def run_spm(input_nii: Path, out_dir: Path, spm_dir: Path, matlab_cmd: str) -> N
     else:
         _run(matlab_cmd.split() + [str(batch_path)])
 
+    stem = input_nii.name
+    if stem.endswith(".nii.gz"):
+        stem = stem[:-7]
+    elif stem.endswith(".nii"):
+        stem = stem[:-4]
+
+    outputs = {
+        "gm": str(out_dir / f"c1{stem}.nii"),
+        "wm": str(out_dir / f"c2{stem}.nii"),
+        "csf": str(out_dir / f"c3{stem}.nii"),
+        "deformation": str(out_dir / f"y_{stem}.nii"),
+    }
+    return outputs
+
+
+def _estimate_dg_from_spm(gm_path: Path) -> dict[str, list[float]] | None:
+    try:
+        import nibabel as nib
+        import numpy as np
+    except Exception:
+        return None
+
+    if not gm_path.exists():
+        return None
+
+    img = nib.load(str(gm_path))
+    gm = np.asarray(img.get_fdata(), dtype=float)
+    if gm.ndim != 3 or gm.size == 0:
+        return None
+
+    thr = np.percentile(gm[gm > 0], 70) if np.any(gm > 0) else 0.0
+    mask = gm >= thr
+    if not np.any(mask):
+        return None
+
+    xs, ys, zs = np.where(mask)
+    x_mid = float(np.median(xs))
+    z_min, z_max = np.percentile(zs, 30), np.percentile(zs, 75)
+    post = mask.copy()
+    post[:, :, : int(z_min)] = False
+    post[:, :, int(z_max) + 1 :] = False
+
+    left = np.where(post & (np.indices(post.shape)[0] < x_mid))
+    right = np.where(post & (np.indices(post.shape)[0] >= x_mid))
+    if len(left[0]) == 0 or len(right[0]) == 0:
+        return None
+
+    l_vox = np.array([left[0].mean(), left[1].mean(), left[2].mean(), 1.0])
+    r_vox = np.array([right[0].mean(), right[1].mean(), right[2].mean(), 1.0])
+    aff = img.affine
+    l_mm = (aff @ l_vox)[:3].tolist()
+    r_mm = (aff @ r_vox)[:3].tolist()
+    return {"left_mm": [float(v) for v in l_mm], "right_mm": [float(v) for v in r_mm]}
+
+
+def _run_single(
+    nii: Path,
+    out_dir: Path,
+    backend: str,
+    spm_dir: Path,
+    matlab_cmd: str,
+) -> dict:
+    case_out = out_dir / nii.stem.replace(".nii", "")
+    case_out.mkdir(parents=True, exist_ok=True)
+
+    result: dict[str, object] = {"input_nii": str(nii), "out_dir": str(case_out), "backend": backend}
+
+    if backend in {"afni", "both"}:
+        result["afni"] = run_afni(nii, case_out / "afni")
+
+    if backend in {"spm", "both"}:
+        spm_out = run_spm(nii, case_out / "spm", spm_dir=spm_dir, matlab_cmd=matlab_cmd)
+        result["spm"] = spm_out
+        dg = _estimate_dg_from_spm(Path(spm_out["gm"]))
+        if dg:
+            result["dg_proxy"] = dg
+
+    return result
+
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Run AFNI or SPM analysis on a NIfTI volume.",
+        description="Closed-loop T2 pipeline: discover NIfTI files in a folder and run AFNI/SPM.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--input-nii", type=Path, required=True, help="Input NIfTI (.nii/.nii.gz)")
-    p.add_argument("--backend", choices=["afni", "spm"], required=True)
+    p.add_argument("--input-root", type=Path, required=True, help="Folder containing NIfTI scans")
+    p.add_argument(
+        "--backend",
+        choices=["afni", "spm", "both"],
+        default="both",
+        help="Pipeline backend",
+    )
     p.add_argument("--out-dir", type=Path, default=Path("analysis_out"))
     p.add_argument("--spm-dir", type=Path, default=Path("/opt/spm12"), help="SPM installation directory")
     p.add_argument(
@@ -157,17 +235,44 @@ def main() -> None:
         default="matlab",
         help="MATLAB/SPM launcher command. For SPM standalone, provide wrapper command prefix.",
     )
+    p.add_argument(
+        "--input-nii",
+        type=Path,
+        action="append",
+        default=None,
+        help="Optional explicit NIfTI path(s). If omitted, files are discovered in --input-root.",
+    )
     args = p.parse_args()
 
-    if not args.input_nii.exists():
-        raise SystemExit(f"Input NIfTI not found: {args.input_nii}")
+    if not args.input_root.exists():
+        raise SystemExit(f"Input root not found: {args.input_root}")
 
-    if args.backend == "afni":
-        run_afni(args.input_nii, args.out_dir)
-    else:
-        run_spm(args.input_nii, args.out_dir, args.spm_dir, args.matlab_cmd)
+    scans = args.input_nii or _find_t2_niftis(args.input_root)
+    if not scans:
+        raise SystemExit(
+            "No NIfTI files found. Convert Bruker data first (e.g. Bru2, bruker2nifti, or dcm2niix)."
+        )
 
-    print(f"Done. Outputs in: {args.out_dir}")
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    summary = {"input_root": str(args.input_root), "backend": args.backend, "cases": []}
+    for nii in scans:
+        if not nii.exists():
+            print(f"Skipping missing file: {nii}")
+            continue
+        print(f"=== Processing: {nii}")
+        summary["cases"].append(
+            _run_single(
+                nii=nii,
+                out_dir=args.out_dir,
+                backend=args.backend,
+                spm_dir=args.spm_dir,
+                matlab_cmd=args.matlab_cmd,
+            )
+        )
+
+    out_json = args.out_dir / "summary.json"
+    out_json.write_text(json.dumps(summary, indent=2) + "\n")
+    print(f"Done. Summary written to: {out_json}")
 
 
 if __name__ == "__main__":
