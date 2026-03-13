@@ -386,7 +386,7 @@ def main() -> None:
     p.add_argument(
         "--bruker-converter-args",
         default="-i {input} -o {output}",
-        help="Arguments template for Bruker converter. Available placeholders: {input}, {output}.",
+        help="Arguments template for Bruker converter. Available placeholders: {input}, {output}, {scan_id}.",
     )
     args = p.parse_args()
 
