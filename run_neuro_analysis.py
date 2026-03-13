@@ -11,6 +11,7 @@ Given an input folder, this script can:
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import shlex
 import shutil
@@ -128,23 +129,92 @@ def _resolve_bruker_converter(converter_cmd: str | None) -> str:
     )
 
 
+def _call_converter_method(instance: object) -> None:
+    for method_name in ("convert", "convert_study", "convert_scan", "convert_all"):
+        method = getattr(instance, method_name, None)
+        if callable(method):
+            method()
+            return
+    raise AttributeError("No supported convert* method found on bruker2nifti converter instance.")
+
+
+def _try_construct_and_convert(converter_cls: type, input_dir: Path, output_dir: Path) -> None:
+    attempts: list[tuple[tuple[object, ...], dict[str, object]]] = [
+        ((str(input_dir), str(output_dir)), {}),
+        ((input_dir, output_dir), {}),
+        ((), {"input_dir": str(input_dir), "output_dir": str(output_dir)}),
+        ((), {"input_folder": str(input_dir), "output_folder": str(output_dir)}),
+        ((), {"bruker_dir": str(input_dir), "out_dir": str(output_dir)}),
+    ]
+
+    init_sig = inspect.signature(converter_cls.__init__)
+    valid_param_names = set(init_sig.parameters)
+
+    last_exc: Exception | None = None
+    for args, kwargs in attempts:
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_param_names}
+        try:
+            instance = converter_cls(*args, **filtered_kwargs)
+            _call_converter_method(instance)
+            return
+        except Exception as exc:
+            last_exc = exc
+
+    if last_exc is not None:
+        raise last_exc
+
+
+def _python_bruker2nifti_convert(input_dir: Path, output_dir: Path) -> tuple[bool, str | None]:
+    try:
+        from bruker2nifti.converter import Bruker2Nifti  # type: ignore
+    except Exception as exc:
+        return False, f"Python bruker2nifti unavailable ({exc})."
+
+    try:
+        _try_construct_and_convert(Bruker2Nifti, input_dir=input_dir, output_dir=output_dir)
+    except Exception as exc:
+        return False, f"Python bruker2nifti conversion failed ({exc})."
+
+    return True, None
+
+
 def _convert_bruker_to_nifti(
     input_root: Path,
     converted_dir: Path,
     converter_cmd: str | None,
     converter_args_template: str,
 ) -> list[Path]:
-    resolved_converter = _resolve_bruker_converter(converter_cmd)
-
     converted_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Using Bruker converter: {resolved_converter}")
+    resolved_converter = None
+    if converter_cmd:
+        resolved_converter = _resolve_bruker_converter(converter_cmd)
+        print(f"Using Bruker converter command: {resolved_converter}")
+    else:
+        print("Trying Python bruker2nifti package first; will fall back to CLI converters if unavailable.")
 
     last_error: subprocess.CalledProcessError | None = None
+    last_python_error: str | None = None
     for idx, candidate in enumerate(_bruker_input_candidates(input_root), start=1):
         attempt_out = converted_dir / f"attempt_{idx}"
         if attempt_out.exists():
             shutil.rmtree(attempt_out)
         attempt_out.mkdir(parents=True, exist_ok=True)
+
+        if resolved_converter is None:
+            if candidate != input_root:
+                print(f"Retrying Python bruker2nifti conversion with likely study root: {candidate}")
+            ok, py_err = _python_bruker2nifti_convert(candidate, attempt_out)
+            if ok:
+                converted = _find_t2_niftis(attempt_out)
+                if converted:
+                    return converted
+            elif py_err:
+                last_python_error = py_err
+                print(py_err)
+
+            # Resolve CLI converter lazily only when Python path failed.
+            resolved_converter = _resolve_bruker_converter(None)
+            print(f"Falling back to Bruker converter command: {resolved_converter}")
 
         try:
             converter_args = converter_args_template.format(
@@ -176,6 +246,12 @@ def _convert_bruker_to_nifti(
             "Bruker conversion failed for all candidate input paths. "
             "Clean --out-dir/converted_nifti and verify input points to a Bruker study or scan folder."
         ) from last_error
+
+    if last_python_error is not None:
+        raise SystemExit(
+            "Bruker conversion failed via Python bruker2nifti and no CLI fallback succeeded. "
+            f"Last Python error: {last_python_error}"
+        )
 
     return _find_t2_niftis(converted_dir)
 
