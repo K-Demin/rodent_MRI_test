@@ -58,6 +58,27 @@ def _looks_like_bruker_root(root: Path) -> bool:
     return any(root.glob("*/pdata/*/2dseq"))
 
 
+def _is_scan_like_dir(path: Path) -> bool:
+    return path.is_dir() and path.name.isdigit() and (path / "acqp").exists() and (path / "method").exists()
+
+
+def _bruker_input_candidates(root: Path) -> list[Path]:
+    candidates = [root]
+    parent = root.parent
+
+    # Common operator mistake: passing a single scan folder (e.g. .../5)
+    # to converters that expect the study root containing study.MR/subject.
+    if _is_scan_like_dir(root) and parent != root:
+        candidates.append(parent)
+
+    # De-duplicate while preserving order.
+    uniq: list[Path] = []
+    for item in candidates:
+        if item not in uniq:
+            uniq.append(item)
+    return uniq
+
+
 def _resolve_bruker_converter(converter_cmd: str | None) -> str:
     if converter_cmd:
         converter_exe = shlex.split(converter_cmd)[0]
@@ -83,20 +104,41 @@ def _convert_bruker_to_nifti(
     resolved_converter = _resolve_bruker_converter(converter_cmd)
 
     converted_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        converter_args = converter_args_template.format(
-            input=input_root.as_posix(),
-            output=converted_dir.as_posix(),
-        )
-    except KeyError as exc:
-        raise SystemExit(
-            "Invalid --bruker-converter-args template. "
-            "Use placeholders {input} and/or {output}."
-        ) from exc
-
-    cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
     print(f"Using Bruker converter: {resolved_converter}")
-    _run(cmd)
+
+    last_error: subprocess.CalledProcessError | None = None
+    for candidate in _bruker_input_candidates(input_root):
+        try:
+            converter_args = converter_args_template.format(
+                input=candidate.as_posix(),
+                output=converted_dir.as_posix(),
+            )
+        except KeyError as exc:
+            raise SystemExit(
+                "Invalid --bruker-converter-args template. "
+                "Use placeholders {input} and/or {output}."
+            ) from exc
+
+        cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
+        if candidate != input_root:
+            print(f"Retrying Bruker conversion with likely study root: {candidate}")
+
+        try:
+            _run(cmd)
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            continue
+
+        converted = _find_t2_niftis(converted_dir)
+        if converted:
+            return converted
+
+    if last_error is not None:
+        raise SystemExit(
+            "Bruker conversion failed for all candidate input paths. "
+            "If you passed a scan folder, try the study root (folder with study.MR)."
+        ) from last_error
+
     return _find_t2_niftis(converted_dir)
 
 
@@ -333,7 +375,10 @@ def main() -> None:
 
     scans = args.input_nii or _find_t2_niftis(args.input_root)
     if not scans:
-        if args.no_convert_bruker or not _looks_like_bruker_root(args.input_root):
+        bruker_candidates = _bruker_input_candidates(args.input_root)
+        can_attempt_bruker = any(_looks_like_bruker_root(candidate) for candidate in bruker_candidates)
+
+        if args.no_convert_bruker or not can_attempt_bruker:
             raise SystemExit(
                 "No NIfTI files found. Convert Bruker data first (e.g. Bru2, bruker2nifti, or dcm2niix), "
                 "or run without --no-convert-bruker to auto-convert."
