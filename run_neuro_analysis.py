@@ -44,24 +44,58 @@ def _find_t2_niftis(root: Path) -> list[Path]:
 def _looks_like_bruker_root(root: Path) -> bool:
     if (root / "study.MR").exists() and (root / "subject").exists():
         return True
-    return any(root.glob("*/pdata/1/2dseq"))
+
+    # Allow pointing --input-root either to a full ParaVision study folder
+    # or directly to a single scan folder (e.g. .../<scan_id>/).
+    if (root / "pdata" / "1" / "2dseq").exists():
+        return True
+
+    # Variant where pdata sits directly under the provided root.
+    if any(root.glob("pdata/*/2dseq")):
+        return True
+
+    # Study-level layout where scan folders are direct children of root.
+    return any(root.glob("*/pdata/*/2dseq"))
+
+
+def _resolve_bruker_converter(converter_cmd: str | None) -> str:
+    if converter_cmd:
+        converter_exe = shlex.split(converter_cmd)[0]
+        _require_cmd(converter_exe)
+        return converter_cmd
+
+    for candidate in ("bruker2nii", "bruker2nifti", "Bru2"):
+        if shutil.which(candidate):
+            return candidate
+
+    raise SystemExit(
+        "No Bruker converter found in PATH. Tried: bruker2nii, bruker2nifti, Bru2. "
+        "Install one of them or pass --bruker-converter-cmd explicitly."
+    )
 
 
 def _convert_bruker_to_nifti(
     input_root: Path,
     converted_dir: Path,
-    converter_cmd: str,
+    converter_cmd: str | None,
     converter_args_template: str,
 ) -> list[Path]:
-    converter_exe = shlex.split(converter_cmd)[0]
-    _require_cmd(converter_exe)
+    resolved_converter = _resolve_bruker_converter(converter_cmd)
 
     converted_dir.mkdir(parents=True, exist_ok=True)
-    converter_args = converter_args_template.format(
-        input=input_root.as_posix(),
-        output=converted_dir.as_posix(),
-    )
-    cmd = shlex.split(converter_cmd) + shlex.split(converter_args)
+    try:
+        converter_args = converter_args_template.format(
+            input=input_root.as_posix(),
+            output=converted_dir.as_posix(),
+        )
+    except KeyError as exc:
+        raise SystemExit(
+            "Invalid --bruker-converter-args template. "
+            "Use placeholders {input} and/or {output}."
+        ) from exc
+
+    cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
+    print(f"Using Bruker converter: {resolved_converter}")
     _run(cmd)
     return _find_t2_niftis(converted_dir)
 
@@ -281,8 +315,11 @@ def main() -> None:
     )
     p.add_argument(
         "--bruker-converter-cmd",
-        default="bruker2nifti",
-        help="Bruker converter command.",
+        default=None,
+        help=(
+            "Bruker converter command. If omitted, auto-detects one of: "
+            "bruker2nii, bruker2nifti, Bru2."
+        ),
     )
     p.add_argument(
         "--bruker-converter-args",

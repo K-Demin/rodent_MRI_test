@@ -20,7 +20,7 @@ python3 analyze_implant_distance.py --blocks 5 13 --viz-dir viz
 Use `run_neuro_analysis.py` when you want one command that takes folders and runs full processing:
 
 - discovers T2 NIfTI files under a root folder (`*t2*.nii*` / `*rare*.nii*`, then fallback to any NIfTI),
-- auto-converts Bruker ParaVision folders to NIfTI when no NIfTI files are present (uses `bruker2nifti` by default; configurable),
+- auto-converts Bruker ParaVision folders to NIfTI when no NIfTI files are present (auto-detects `bruker2nii`/`bruker2nifti`/`Bru2` by default; configurable),
 - runs AFNI (`3dUnifize`, `3dAutomask`, `3dSkullStrip`) and/or SPM segmentation,
 - writes one `summary.json` report,
 - optionally computes a **DG proxy** from SPM gray-matter segmentation (centroids of posterior left/right gray-matter clusters).
@@ -57,7 +57,7 @@ Automatic conversion defaults to:
 python3 run_neuro_analysis.py --input-root /path/to/bruker_study --out-dir analysis_out
 ```
 
-It invokes `bruker2nifti -i {input} -o {output}` by default and writes converted data to `<out-dir>/converted_nifti`.
+It auto-detects a converter from `bruker2nii`, `bruker2nifti`, or `Bru2` and applies `-i {input} -o {output}` by default, writing converted data to `<out-dir>/converted_nifti`.
 You can override this with `--bruker-converter-cmd`, `--bruker-converter-args`, `--converted-dir`, or disable it with `--no-convert-bruker`.
 
 Manual conversion is still supported with tools such as:
