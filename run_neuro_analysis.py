@@ -151,40 +151,6 @@ def _resolve_bruker_converter(converter_cmd: str | None) -> str:
     return resolved
 
 
-def _brkraw_auto_commands(converter_cmd: str, input_dir: Path, output_dir: Path) -> list[list[str]]:
-    base = shlex.split(converter_cmd)
-
-    # Compatible with modern brkraw CLI (command names observed from current help output).
-    return [
-        [*base, "convert", str(input_dir), "-o", str(output_dir)],
-        [*base, "convert", "-i", str(input_dir), "-o", str(output_dir)],
-        [*base, "convert", str(input_dir), "--output", str(output_dir)],
-        [*base, "convert", "-i", str(input_dir), "--output", str(output_dir)],
-    ]
-
-
-def _converter_commands(
-    converter_cmd: str,
-    converter_args_template: str,
-    input_dir: Path,
-    output_dir: Path,
-) -> list[list[str]]:
-    if converter_args_template.lower() == "auto" and shlex.split(converter_cmd)[0] == "brkraw":
-        return _brkraw_auto_commands(converter_cmd, input_dir=input_dir, output_dir=output_dir)
-
-    try:
-        converter_args = converter_args_template.format(
-            input=input_dir.as_posix(),
-            output=output_dir.as_posix(),
-        )
-    except KeyError as exc:
-        raise SystemExit(
-            "Invalid --bruker-converter-args template. "
-            "Use placeholders {input} and/or {output}."
-        ) from exc
-    return [shlex.split(converter_cmd) + shlex.split(converter_args)]
-
-
 def _convert_bruker_to_nifti(
     input_root: Path,
     converted_dir: Path,
@@ -202,6 +168,18 @@ def _convert_bruker_to_nifti(
             shutil.rmtree(attempt_out)
         attempt_out.mkdir(parents=True, exist_ok=True)
 
+        try:
+            converter_args = converter_args_template.format(
+                input=candidate.as_posix(),
+                output=attempt_out.as_posix(),
+            )
+        except KeyError as exc:
+            raise SystemExit(
+                "Invalid --bruker-converter-args template. "
+                "Use placeholders {input} and/or {output}."
+            ) from exc
+
+        cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
         if candidate != input_root:
             print(f"Retrying Bruker conversion with likely study root: {candidate}")
 
@@ -508,11 +486,8 @@ def main() -> None:
     )
     p.add_argument(
         "--bruker-converter-args",
-        default="auto",
-        help=(
-            "Arguments template for Bruker converter. Use placeholders {input} and {output}. "
-            "Default 'auto' tries known brkraw convert invocation styles."
-        ),
+        default="tonii {input} -o {output}",
+        help="Arguments template for Bruker converter. Available placeholders: {input}, {output}, {scan_id}.",
     )
     args = p.parse_args()
 

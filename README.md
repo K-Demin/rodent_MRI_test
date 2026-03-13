@@ -64,7 +64,7 @@ Automatic conversion defaults to:
 python3 run_neuro_analysis.py --input-root /path/to/bruker_study --out-dir analysis_out
 ```
 
-It uses `brkraw` by default and auto-detects compatible `brkraw convert` argument styles; override with `--bruker-converter-args` if your installation differs.
+It uses `brkraw` by default (`tonii {input} -o {output}`) and writes converted data to `<out-dir>/converted_nifti`.
 When `--input-root` points to a single scan folder (for example `.../5`) or nested `pdata` path, the script retries conversion against likely scan/study ancestors and uses isolated conversion attempt directories for robust retries.
 You can override this with `--bruker-converter-cmd`, `--bruker-converter-args`, `--converted-dir`, or disable it with `--no-convert-bruker`.
 
