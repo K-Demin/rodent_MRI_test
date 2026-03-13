@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 import subprocess
 import textwrap
@@ -38,6 +39,65 @@ def _find_t2_niftis(root: Path) -> list[Path]:
 
     t2 = [p for p in all_nifti if "t2" in p.name.lower() or "rare" in p.name.lower()]
     return t2 or all_nifti
+
+
+def _looks_like_bruker_root(root: Path) -> bool:
+    if (root / "study.MR").exists() and (root / "subject").exists():
+        return True
+
+    # Allow pointing --input-root either to a full ParaVision study folder
+    # or directly to a single scan folder (e.g. .../<scan_id>/).
+    if (root / "pdata" / "1" / "2dseq").exists():
+        return True
+
+    # Variant where pdata sits directly under the provided root.
+    if any(root.glob("pdata/*/2dseq")):
+        return True
+
+    # Study-level layout where scan folders are direct children of root.
+    return any(root.glob("*/pdata/*/2dseq"))
+
+
+def _resolve_bruker_converter(converter_cmd: str | None) -> str:
+    if converter_cmd:
+        converter_exe = shlex.split(converter_cmd)[0]
+        _require_cmd(converter_exe)
+        return converter_cmd
+
+    for candidate in ("bruker2nii", "bruker2nifti", "Bru2"):
+        if shutil.which(candidate):
+            return candidate
+
+    raise SystemExit(
+        "No Bruker converter found in PATH. Tried: bruker2nii, bruker2nifti, Bru2. "
+        "Install one of them or pass --bruker-converter-cmd explicitly."
+    )
+
+
+def _convert_bruker_to_nifti(
+    input_root: Path,
+    converted_dir: Path,
+    converter_cmd: str | None,
+    converter_args_template: str,
+) -> list[Path]:
+    resolved_converter = _resolve_bruker_converter(converter_cmd)
+
+    converted_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        converter_args = converter_args_template.format(
+            input=input_root.as_posix(),
+            output=converted_dir.as_posix(),
+        )
+    except KeyError as exc:
+        raise SystemExit(
+            "Invalid --bruker-converter-args template. "
+            "Use placeholders {input} and/or {output}."
+        ) from exc
+
+    cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
+    print(f"Using Bruker converter: {resolved_converter}")
+    _run(cmd)
+    return _find_t2_niftis(converted_dir)
 
 
 def run_afni(input_nii: Path, out_dir: Path) -> dict[str, str]:
@@ -242,6 +302,30 @@ def main() -> None:
         default=None,
         help="Optional explicit NIfTI path(s). If omitted, files are discovered in --input-root.",
     )
+    p.add_argument(
+        "--no-convert-bruker",
+        action="store_true",
+        help="Disable automatic Bruker-to-NIfTI conversion when no NIfTI files are found.",
+    )
+    p.add_argument(
+        "--converted-dir",
+        type=Path,
+        default=None,
+        help="Where converted NIfTI files are written (default: <out-dir>/converted_nifti).",
+    )
+    p.add_argument(
+        "--bruker-converter-cmd",
+        default=None,
+        help=(
+            "Bruker converter command. If omitted, auto-detects one of: "
+            "bruker2nii, bruker2nifti, Bru2."
+        ),
+    )
+    p.add_argument(
+        "--bruker-converter-args",
+        default="-i {input} -o {output}",
+        help="Arguments template for Bruker converter. Available placeholders: {input}, {output}.",
+    )
     args = p.parse_args()
 
     if not args.input_root.exists():
@@ -249,12 +333,33 @@ def main() -> None:
 
     scans = args.input_nii or _find_t2_niftis(args.input_root)
     if not scans:
-        raise SystemExit(
-            "No NIfTI files found. Convert Bruker data first (e.g. Bru2, bruker2nifti, or dcm2niix)."
+        if args.no_convert_bruker or not _looks_like_bruker_root(args.input_root):
+            raise SystemExit(
+                "No NIfTI files found. Convert Bruker data first (e.g. Bru2, bruker2nifti, or dcm2niix), "
+                "or run without --no-convert-bruker to auto-convert."
+            )
+
+        converted_dir = args.converted_dir or (args.out_dir / "converted_nifti")
+        print(f"No NIfTI files found. Attempting Bruker conversion into: {converted_dir}")
+        scans = _convert_bruker_to_nifti(
+            input_root=args.input_root,
+            converted_dir=converted_dir,
+            converter_cmd=args.bruker_converter_cmd,
+            converter_args_template=args.bruker_converter_args,
         )
+        if not scans:
+            raise SystemExit(
+                "Bruker conversion completed but no NIfTI files were discovered in the converted output. "
+                "Check --bruker-converter-cmd/--bruker-converter-args and source data."
+            )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summary = {"input_root": str(args.input_root), "backend": args.backend, "cases": []}
+    summary = {
+        "input_root": str(args.input_root),
+        "backend": args.backend,
+        "auto_bruker_conversion": not args.no_convert_bruker,
+        "cases": [],
+    }
     for nii in scans:
         if not nii.exists():
             print(f"Skipping missing file: {nii}")
