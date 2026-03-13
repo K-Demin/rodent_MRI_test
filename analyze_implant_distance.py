@@ -77,6 +77,66 @@ def _component_centroid(indices: Iterable[int], w: int) -> Tuple[float, float]:
     return cx, cy
 
 
+def _dark_subset(values: Sequence[float], indices: Iterable[int], p: float) -> List[int]:
+    idx = list(indices)
+    if not idx:
+        return []
+    thr = _percentile([values[i] for i in idx], p)
+    return [i for i in idx if values[i] <= thr]
+
+
+def _write_slice_svg(
+    out_path: Path,
+    im: Sequence[float],
+    w: int,
+    h: int,
+    implant_xy: Tuple[float, float] | None = None,
+    dg_ipsi_xy: Tuple[float, float] | None = None,
+    dg_left_xy: Tuple[float, float] | None = None,
+    dg_right_xy: Tuple[float, float] | None = None,
+    fiber_spots: Iterable[int] = (),
+) -> None:
+    lo = min(im)
+    hi = max(im)
+    denom = hi - lo if hi > lo else 1.0
+
+    # SVG with per-pixel grayscale rectangles: dependency-free and viewable in browser.
+    lines = [
+        "<?xml version='1.0' encoding='UTF-8'?>",
+        f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 {w} {h}' shape-rendering='crispEdges'>",
+        f"<rect x='0' y='0' width='{w}' height='{h}' fill='black'/>",
+    ]
+    for y in range(h):
+        for x in range(w):
+            i = y * w + x
+            g = int(round((im[i] - lo) / denom * 255))
+            lines.append(f"<rect x='{x}' y='{y}' width='1' height='1' fill='rgb({g},{g},{g})'/>")
+
+    for i in fiber_spots:
+        x, y = i % w, i // w
+        lines.append(
+            f"<circle cx='{x+0.5:.3f}' cy='{y+0.5:.3f}' r='0.35' fill='none' stroke='#00D4FF' stroke-width='0.12'/>"
+        )
+
+    def add_marker(xy: Tuple[float, float] | None, color: str, label: str) -> None:
+        if xy is None:
+            return
+        x, y = xy
+        lines.append(f"<circle cx='{x:.3f}' cy='{y:.3f}' r='2.0' fill='none' stroke='{color}' stroke-width='0.5'/>")
+        lines.append(f"<line x1='{x-2.3:.3f}' y1='{y:.3f}' x2='{x+2.3:.3f}' y2='{y:.3f}' stroke='{color}' stroke-width='0.4'/>")
+        lines.append(f"<line x1='{x:.3f}' y1='{y-2.3:.3f}' x2='{x:.3f}' y2='{y+2.3:.3f}' stroke='{color}' stroke-width='0.4'/>")
+        lines.append(
+            f"<text x='{x+2.5:.3f}' y='{y-2.5:.3f}' fill='{color}' font-size='3.2' font-family='monospace'>{label}</text>"
+        )
+
+    add_marker(implant_xy, "#FF4A4A", "implant")
+    add_marker(dg_ipsi_xy, "#52FF6A", "DG ipsi")
+    add_marker(dg_left_xy, "#FFE14A", "DG L")
+    add_marker(dg_right_xy, "#FFE14A", "DG R")
+    lines.append("</svg>")
+    out_path.write_text("\n".join(lines))
+
+
 def load_block(block_dir: Path) -> dict:
     visu_text = (block_dir / "pdata/1/visu_pars").read_text(errors="ignore")
 
@@ -130,8 +190,8 @@ def _segment_brain(im: List[float], w: int, h: int) -> set[int]:
     return _largest_component([v > thr for v in im], w, h)
 
 
-def estimate_implant(block: dict) -> Tuple[int, float, float, Point3D, int, set[int]]:
-    """Return (slice_idx, x_px, y_px, world_mm, n_dark_vox, brain_mask)."""
+def estimate_implant(block: dict) -> Tuple[int, float, float, Point3D, int, set[int], List[int]]:
+    """Return (slice_idx, x_px, y_px, world_mm, n_dark_vox, brain_mask, dark_voxels)."""
     w, h = block["w"], block["h"]
     candidates = []
     for z, im in enumerate(block["images"]):
@@ -151,7 +211,9 @@ def estimate_implant(block: dict) -> Tuple[int, float, float, Point3D, int, set[
         raise RuntimeError("No implant candidate found")
 
     _, z, cx, cy, n_dark, brain = max(candidates, key=lambda x: x[0])
-    return z, cx, cy, pixel_to_world(block, z, cx, cy), n_dark, brain
+    im = block["images"][z]
+    dark = _dark_subset(im, brain, 0.05)
+    return z, cx, cy, pixel_to_world(block, z, cx, cy), n_dark, brain, dark
 
 
 def _dg_candidate_in_roi(
@@ -181,7 +243,9 @@ def _dg_candidate_in_roi(
     return _component_centroid(dark, w)
 
 
-def estimate_dg(block: dict, implant_slice: int, implant_x: float) -> Tuple[int, float, float, Point3D, Point3D]:
+def estimate_dg(
+    block: dict, implant_slice: int, implant_x: float
+) -> Tuple[int, float, float, Point3D, Point3D, Tuple[float, float], Tuple[float, float]]:
     """Estimate ipsilateral and bilateral-midpoint DG world coordinates.
 
     Returns:
@@ -224,7 +288,15 @@ def estimate_dg(block: dict, implant_slice: int, implant_x: float) -> Tuple[int,
     dgx, dgy = ipsi
     midx, midy = (left[0] + right[0]) / 2, (left[1] + right[1]) / 2
 
-    return z, dgx, dgy, pixel_to_world(block, z, dgx, dgy), pixel_to_world(block, z, midx, midy)
+    return (
+        z,
+        dgx,
+        dgy,
+        pixel_to_world(block, z, dgx, dgy),
+        pixel_to_world(block, z, midx, midy),
+        left,
+        right,
+    )
 
 
 def distance(a: Sequence[float], b: Sequence[float]) -> float:
@@ -241,13 +313,19 @@ def main() -> None:
         metavar=("X", "Y", "Z"),
         help="Optional manual DG reference coordinate in scanner/world mm.",
     )
+    p.add_argument(
+        "--viz-dir",
+        type=Path,
+        default=None,
+        help="Optional directory to write SVG visualizations with implant/DG/fiber spots.",
+    )
     args = p.parse_args()
 
     manual_dg = tuple(args.dg_world_mm) if args.dg_world_mm else None
 
     for b in args.blocks:
         block = load_block(Path(b))
-        iz, ix, iy, implant_world, n_dark, _brain = estimate_implant(block)
+        iz, ix, iy, implant_world, n_dark, brain, dark_vox = estimate_implant(block)
         print(
             f"block {b}: implant slice={iz+1}/{block['frames']}, pixel=({ix:.2f},{iy:.2f}), "
             f"implant_world_mm=({implant_world[0]:.3f},{implant_world[1]:.3f},{implant_world[2]:.3f}), "
@@ -258,9 +336,19 @@ def main() -> None:
             d = distance(implant_world, manual_dg)
             print(f"  DG(manual)_world_mm=({manual_dg[0]:.3f},{manual_dg[1]:.3f},{manual_dg[2]:.3f})")
             print(f"  implant_to_DG_mm={d:.3f}")
+            if args.viz_dir is not None:
+                args.viz_dir.mkdir(parents=True, exist_ok=True)
+                _write_slice_svg(
+                    args.viz_dir / f"block_{b}_implant_only.svg",
+                    block["images"][iz],
+                    block["w"],
+                    block["h"],
+                    implant_xy=(ix, iy),
+                    fiber_spots=dark_vox,
+                )
             continue
 
-        dz, dgx, dgy, dg_world_ipsi, dg_world_mid = estimate_dg(block, iz, ix)
+        dz, dgx, dgy, dg_world_ipsi, dg_world_mid, left, right = estimate_dg(block, iz, ix)
         print(
             f"  DG(segmented) slice={dz+1}/{block['frames']}, ipsi_pixel=({dgx:.2f},{dgy:.2f}), "
             f"DG_ipsi_world_mm=({dg_world_ipsi[0]:.3f},{dg_world_ipsi[1]:.3f},{dg_world_ipsi[2]:.3f})"
@@ -270,6 +358,50 @@ def main() -> None:
         )
         print(f"  implant_to_DG_ipsi_mm={distance(implant_world, dg_world_ipsi):.3f}")
         print(f"  implant_to_DG_midline_mm={distance(implant_world, dg_world_mid):.3f}")
+
+        if args.viz_dir is not None:
+            args.viz_dir.mkdir(parents=True, exist_ok=True)
+            _write_slice_svg(
+                args.viz_dir / f"block_{b}_implant_slice_{iz+1}.svg",
+                block["images"][iz],
+                block["w"],
+                block["h"],
+                implant_xy=(ix, iy),
+                fiber_spots=dark_vox,
+            )
+            dg_im = block["images"][dz]
+            dg_brain = _segment_brain(dg_im, block["w"], block["h"])
+            left_dark = _dark_subset(
+                dg_im,
+                [
+                    i
+                    for i in dg_brain
+                    if 0.15 <= (i % block["w"]) / block["w"] <= 0.45
+                    and 0.45 <= (i // block["w"]) / block["h"] <= 0.88
+                ],
+                0.12,
+            )
+            right_dark = _dark_subset(
+                dg_im,
+                [
+                    i
+                    for i in dg_brain
+                    if 0.55 <= (i % block["w"]) / block["w"] <= 0.85
+                    and 0.45 <= (i // block["w"]) / block["h"] <= 0.88
+                ],
+                0.12,
+            )
+            _write_slice_svg(
+                args.viz_dir / f"block_{b}_dg_slice_{dz+1}.svg",
+                dg_im,
+                block["w"],
+                block["h"],
+                implant_xy=(ix, iy) if iz == dz else None,
+                dg_ipsi_xy=(dgx, dgy),
+                dg_left_xy=left,
+                dg_right_xy=right,
+                fiber_spots=left_dark + right_dark,
+            )
 
 
 if __name__ == "__main__":
