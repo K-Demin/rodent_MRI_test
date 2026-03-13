@@ -14,3 +14,23 @@ Example:
 ```bash
 python3 analyze_implant_distance.py --blocks 5 13 --viz-dir viz
 ```
+
+
+## Running proper AFNI or SPM analysis
+
+If you want a standard neuroimaging workflow (instead of the lightweight heuristic script), use:
+
+- `run_neuro_analysis.py --backend afni` for AFNI preprocessing (`3dUnifize`, `3dAutomask`, `3dSkullStrip`)
+- `run_neuro_analysis.py --backend spm` for SPM12 tissue segmentation via MATLAB
+
+Example:
+
+```bash
+python3 run_neuro_analysis.py --backend afni --input-nii my_scan.nii.gz --out-dir afni_out
+python3 run_neuro_analysis.py --backend spm --input-nii my_scan.nii.gz --spm-dir /opt/spm12 --out-dir spm_out
+```
+
+Notes:
+- AFNI backend requires AFNI binaries in `PATH`.
+- SPM backend requires MATLAB (or SPM standalone launcher) and a valid SPM installation.
+- If your source data is raw Bruker ParaVision, convert to NIfTI first (e.g., `Bru2`/`bruker2nifti`).
