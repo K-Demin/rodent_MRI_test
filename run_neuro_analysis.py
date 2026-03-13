@@ -183,20 +183,29 @@ def _convert_bruker_to_nifti(
         if candidate != input_root:
             print(f"Retrying Bruker conversion with likely study root: {candidate}")
 
-        try:
-            _run(cmd)
-        except subprocess.CalledProcessError as exc:
-            last_error = exc
-            continue
+        commands = _converter_commands(
+            converter_cmd=resolved_converter,
+            converter_args_template=converter_args_template,
+            input_dir=candidate,
+            output_dir=attempt_out,
+        )
 
-        converted = _find_t2_niftis(attempt_out)
-        if converted:
-            return converted
+        for cmd in commands:
+            try:
+                _run(cmd)
+            except subprocess.CalledProcessError as exc:
+                last_error = exc
+                continue
+
+            converted = _find_t2_niftis(attempt_out)
+            if converted:
+                return converted
 
     if last_error is not None:
         raise SystemExit(
             "Bruker conversion failed for all candidate input paths. "
-            "Clean --out-dir/converted_nifti and verify input points to a Bruker study or scan folder."
+            "Clean --out-dir/converted_nifti and verify input points to a Bruker study or scan folder. "
+            "If brkraw is installed, try --bruker-converter-args 'auto' (default) or inspect 'brkraw convert -h'."
         ) from last_error
 
     return _find_t2_niftis(converted_dir)
