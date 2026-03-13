@@ -44,13 +44,6 @@ def _find_t2_niftis(root: Path) -> list[Path]:
 def _looks_like_bruker_root(root: Path) -> bool:
     if (root / "study.MR").exists() and (root / "subject").exists():
         return True
-
-    # Allow pointing --input-root either to a full ParaVision study folder
-    # or directly to a single scan folder (e.g. .../<scan_id>/).
-    if (root / "pdata" / "1" / "2dseq").exists():
-        return True
-
-    # Study-level layout where scan folders are direct children of root.
     return any(root.glob("*/pdata/1/2dseq"))
 
 
