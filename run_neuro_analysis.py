@@ -94,42 +94,6 @@ def _bruker_input_candidates(root: Path) -> list[Path]:
     return uniq
 
 
-def _extract_scan_id(path: Path) -> str | None:
-    parts = path.parts
-    if "pdata" in parts:
-        idx = parts.index("pdata")
-        if idx > 0 and parts[idx - 1].isdigit():
-            return parts[idx - 1]
-
-    if path.name.isdigit() and (path / "acqp").exists():
-        return path.name
-
-    for anc in [path, *path.parents]:
-        if anc.name.isdigit() and (anc / "acqp").exists() and (anc / "method").exists():
-            return anc.name
-
-    return None
-
-
-def _converter_variants(converter_cmd: str, candidate: Path, scan_id: str | None, converter_args: str) -> list[list[str]]:
-    base = shlex.split(converter_cmd) + shlex.split(converter_args)
-    variants = [base]
-
-    converter_name = Path(shlex.split(converter_cmd)[0]).name.lower()
-    if scan_id and converter_name in {"bruker2nifti", "bruker2nii"} and not _is_scan_like_dir(candidate):
-        for flag in ("-s", "--scans", "-scans"):
-            variants.append(base + [flag, scan_id])
-
-    uniq: list[list[str]] = []
-    seen: set[tuple[str, ...]] = set()
-    for cmd in variants:
-        key = tuple(cmd)
-        if key not in seen:
-            seen.add(key)
-            uniq.append(cmd)
-    return uniq
-
-
 def _resolve_bruker_converter(converter_cmd: str | None) -> str:
     if converter_cmd:
         converter_exe = shlex.split(converter_cmd)[0]
@@ -157,7 +121,6 @@ def _convert_bruker_to_nifti(
     converted_dir.mkdir(parents=True, exist_ok=True)
     print(f"Using Bruker converter: {resolved_converter}")
 
-    scan_id = _extract_scan_id(input_root)
     last_error: subprocess.CalledProcessError | None = None
     for idx, candidate in enumerate(_bruker_input_candidates(input_root), start=1):
         attempt_out = converted_dir / f"attempt_{idx}"
@@ -169,36 +132,31 @@ def _convert_bruker_to_nifti(
             converter_args = converter_args_template.format(
                 input=candidate.as_posix(),
                 output=attempt_out.as_posix(),
-                scan_id=scan_id or "",
             )
         except KeyError as exc:
             raise SystemExit(
                 "Invalid --bruker-converter-args template. "
-                "Use placeholders {input}, {output}, and optional {scan_id}."
+                "Use placeholders {input} and/or {output}."
             ) from exc
 
-        variants = _converter_variants(resolved_converter, candidate, scan_id, converter_args)
+        cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
         if candidate != input_root:
             print(f"Retrying Bruker conversion with likely study root: {candidate}")
 
-        for var_idx, cmd in enumerate(variants, start=1):
-            if var_idx > 1:
-                print(f"Retrying converter flags for scan selection: {' '.join(cmd)}")
-            try:
-                _run(cmd)
-            except subprocess.CalledProcessError as exc:
-                last_error = exc
-                continue
+        try:
+            _run(cmd)
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            continue
 
-            converted = _find_t2_niftis(attempt_out)
-            if converted:
-                return converted
+        converted = _find_t2_niftis(attempt_out)
+        if converted:
+            return converted
 
     if last_error is not None:
         raise SystemExit(
             "Bruker conversion failed for all candidate input paths. "
-            "If bruker2nifti crashes on study-wide conversion, pass --bruker-converter-args with scan filter "
-            "(e.g. '-i {input} -o {output} -s {scan_id}') or use Bru2."
+            "Clean --out-dir/converted_nifti and verify input points to a Bruker study or scan folder."
         ) from last_error
 
     return _find_t2_niftis(converted_dir)
