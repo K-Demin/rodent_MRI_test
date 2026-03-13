@@ -15,22 +15,49 @@ Example:
 python3 analyze_implant_distance.py --blocks 5 13 --viz-dir viz
 ```
 
+## Closed-loop AFNI/SPM T2 pipeline
 
-## Running proper AFNI or SPM analysis
+Use `run_neuro_analysis.py` when you want one command that takes folders and runs full processing:
 
-If you want a standard neuroimaging workflow (instead of the lightweight heuristic script), use:
+- discovers T2 NIfTI files under a root folder (`*t2*.nii*` / `*rare*.nii*`, then fallback to any NIfTI),
+- runs AFNI (`3dUnifize`, `3dAutomask`, `3dSkullStrip`) and/or SPM segmentation,
+- writes one `summary.json` report,
+- optionally computes a **DG proxy** from SPM gray-matter segmentation (centroids of posterior left/right gray-matter clusters).
 
-- `run_neuro_analysis.py --backend afni` for AFNI preprocessing (`3dUnifize`, `3dAutomask`, `3dSkullStrip`)
-- `run_neuro_analysis.py --backend spm` for SPM12 tissue segmentation via MATLAB
-
-Example:
+Example (full loop):
 
 ```bash
-python3 run_neuro_analysis.py --backend afni --input-nii my_scan.nii.gz --out-dir afni_out
-python3 run_neuro_analysis.py --backend spm --input-nii my_scan.nii.gz --spm-dir /opt/spm12 --out-dir spm_out
+python3 run_neuro_analysis.py \
+  --input-root /data/nii \
+  --backend both \
+  --spm-dir /opt/spm12 \
+  --out-dir analysis_out
 ```
+
+AFNI-only:
+
+```bash
+python3 run_neuro_analysis.py --input-root /data/nii --backend afni --out-dir afni_out
+```
+
+SPM-only:
+
+```bash
+python3 run_neuro_analysis.py --input-root /data/nii --backend spm --spm-dir /opt/spm12 --out-dir spm_out
+```
+
+### Where to get NIfTI files
+
+This repo expects `.nii`/`.nii.gz` as pipeline input.
+If your source is Bruker ParaVision raw folders (`2dseq`, `visu_pars`), convert first with a standard converter, e.g.:
+
+- `Bru2`
+- `bruker2nifti`
+- `dcm2niix` (if exported through DICOM)
+
+Then point `--input-root` to the converted NIfTI folder.
 
 Notes:
 - AFNI backend requires AFNI binaries in `PATH`.
 - SPM backend requires MATLAB (or SPM standalone launcher) and a valid SPM installation.
-- If your source data is raw Bruker ParaVision, convert to NIfTI first (e.g., `Bru2`/`bruker2nifti`).
+- DG output is a segmentation-derived proxy, not an atlas-validated dentate gyrus segmentation.
