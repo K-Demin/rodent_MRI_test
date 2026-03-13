@@ -58,7 +58,8 @@ python3 run_neuro_analysis.py --input-root /path/to/bruker_study --out-dir analy
 ```
 
 It auto-detects a converter from `bruker2nii`, `bruker2nifti`, or `Bru2` and applies `-i {input} -o {output}` by default, writing converted data to `<out-dir>/converted_nifti`.
-You can override this with `--bruker-converter-cmd`, `--bruker-converter-args`, `--converted-dir`, or disable it with `--no-convert-bruker`.
+When `--input-root` points to a single scan folder (for example `.../5`) or nested `pdata` path, the script retries conversion against likely scan/study ancestors and uses isolated conversion attempt directories to avoid `FileExistsError` collisions from `bruker2nifti`.
+You can override this with `--bruker-converter-cmd`, `--bruker-converter-args`, `--converted-dir`, or disable it with `--no-convert-bruker`. `--bruker-converter-args` supports `{scan_id}` so you can force a single scan for fragile converters (example: `-i {input} -o {output} -s {scan_id}`).
 
 Manual conversion is still supported with tools such as:
 
