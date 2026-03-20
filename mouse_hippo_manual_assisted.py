@@ -509,6 +509,7 @@ def main() -> None:
     p.add_argument("--subject-end", type=int, default=None, help="Last subject slice that should receive hippocampus labels.")
     p.add_argument("--atlas-start", type=int, default=None, help="First atlas slice matching subject-start.")
     p.add_argument("--atlas-end", type=int, default=None, help="Last atlas slice matching subject-end.")
+    p.add_argument("--auto-ap-direction", action="store_true", help="Try both atlas AP directions and pick the one with best score. Default is OFF (respect manual atlas-start/atlas-end direction).")
     p.add_argument("--motion", choices=["translation", "euclidean", "affine"], default="euclidean")
     p.add_argument("--converted-dir", type=Path, default=None, help="Output folder for converted Bruker NIfTI files. Default: <out-dir>/converted_nifti.")
     p.add_argument("--no-convert-bruker", action="store_true", help="Disable auto-conversion when run folder has no NIfTI files.")
@@ -647,38 +648,37 @@ def main() -> None:
             s0, s1 = s1, s0
         rep = list(np.linspace(s0, s1, min(6, max(2, s1 - s0 + 1))).round().astype(int))
 
-        mapping_fwd = _linear_map_indices(subj_stack.shape[-1], s0, s1, a0, a1)
-        mapping_rev = _linear_map_indices(subj_stack.shape[-1], s0, s1, a1, a0)
-
-        fwd_score, fwd_rot90_k, fwd_mirror_lr = _best_transform_for_mapping(
+        mapping = _linear_map_indices(subj_stack.shape[-1], s0, s1, a0, a1)
+        best_score, best_rot90_k, best_mirror_lr = _best_transform_for_mapping(
             subject_stack=subj_stack,
             atlas_stack=atlas_stack,
             atlas_label_stack=atlas_label_stack,
             subj_zooms_xy=subj_zooms_xy,
             atlas_zooms_xy=atlas_zooms_xy,
-            mapping=mapping_fwd,
+            mapping=mapping,
             rep_slices=rep,
             motion=args.motion,
         )
-        rev_score, rev_rot90_k, rev_mirror_lr = _best_transform_for_mapping(
-            subject_stack=subj_stack,
-            atlas_stack=atlas_stack,
-            atlas_label_stack=atlas_label_stack,
-            subj_zooms_xy=subj_zooms_xy,
-            atlas_zooms_xy=atlas_zooms_xy,
-            mapping=mapping_rev,
-            rep_slices=rep,
-            motion=args.motion,
-        )
+        best_ap_direction = "atlas_start_to_end"
+        fwd_score = best_score
+        rev_score: float | None = None
 
-        if rev_score > fwd_score:
-            mapping = mapping_rev
-            best_score, best_rot90_k, best_mirror_lr = rev_score, rev_rot90_k, rev_mirror_lr
-            best_ap_direction = "atlas_end_to_start"
-        else:
-            mapping = mapping_fwd
-            best_score, best_rot90_k, best_mirror_lr = fwd_score, fwd_rot90_k, fwd_mirror_lr
-            best_ap_direction = "atlas_start_to_end"
+        if args.auto_ap_direction:
+            mapping_rev = _linear_map_indices(subj_stack.shape[-1], s0, s1, a1, a0)
+            rev_score, rev_rot90_k, rev_mirror_lr = _best_transform_for_mapping(
+                subject_stack=subj_stack,
+                atlas_stack=atlas_stack,
+                atlas_label_stack=atlas_label_stack,
+                subj_zooms_xy=subj_zooms_xy,
+                atlas_zooms_xy=atlas_zooms_xy,
+                mapping=mapping_rev,
+                rep_slices=rep,
+                motion=args.motion,
+            )
+            if rev_score > fwd_score:
+                mapping = mapping_rev
+                best_score, best_rot90_k, best_mirror_lr = rev_score, rev_rot90_k, rev_mirror_lr
+                best_ap_direction = "atlas_end_to_start"
 
         label_dtype = np.int16 if np.issubdtype(atlas_label_stack.dtype, np.integer) else np.int16
         label_stack_subject = np.zeros(subj_stack.shape, dtype=label_dtype)
@@ -731,7 +731,7 @@ def main() -> None:
             "best_inplane_score_median_ecc": float(best_score),
             "best_ap_direction": best_ap_direction,
             "ap_direction_score_start_to_end": float(fwd_score),
-            "ap_direction_score_end_to_start": float(rev_score),
+            "ap_direction_score_end_to_start": (float(rev_score) if rev_score is not None else None),
             "per_slice_scores": per_slice_scores,
             "output_labels": str(out_labels),
             "output_mask": str(out_mask),
