@@ -7,7 +7,7 @@ This script is intentionally simple and robust:
 2) generate subject and atlas montages with slice indices
 3) user chooses atlas coronal axis/direction and AP anchors
 4) script maps subject slices -> atlas slices linearly across the chosen range
-5) it auto-tests 4 in-plane flip hypotheses and chooses the best one
+5) it auto-tests 8 in-plane rigid orientation hypotheses (rot90 + mirror) and chooses the best one
 6) it performs 2D slice registration (ECC affine by default) and warps atlas labels
 7) it writes the full multi-label atlas result back on the original subject scan grid
    and also saves a binary >0 mask plus QC overlays
@@ -122,6 +122,18 @@ def _crop_to_brain(slice2d: np.ndarray, pad: int = 10) -> tuple[np.ndarray, tupl
     return img[y0:y1, x0:x1], (y0, y1, x0, x1)
 
 
+def _brain_mask2d(slice2d: np.ndarray) -> np.ndarray:
+    img = _normalize_for_display(slice2d)
+    thr = max(0.06, np.percentile(img, 65) * 0.2)
+    mask = img > thr
+    if np.count_nonzero(mask) < 50:
+        return np.ones(img.shape, dtype=bool)
+    mask = ndimage.binary_opening(mask, iterations=1)
+    mask = ndimage.binary_closing(mask, iterations=2)
+    mask = ndimage.binary_fill_holes(mask)
+    return mask.astype(bool)
+
+
 def _resample_slice_to_subject(atlas_slice: np.ndarray, atlas_label_slice: np.ndarray, atlas_zooms_xy: tuple[float, float], subj_shape_xy: tuple[int, int], subj_zooms_xy: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
     # resample atlas slice to subject in-plane pixel size, then center pad/crop to subject shape
     scale_y = atlas_zooms_xy[0] / subj_zooms_xy[0]
@@ -148,19 +160,52 @@ def _resample_slice_to_subject(atlas_slice: np.ndarray, atlas_label_slice: np.nd
     return out_img, out_lab
 
 
-def _apply_flip2d(arr: np.ndarray, flip_lr: bool, flip_ud: bool) -> np.ndarray:
-    out = arr
-    if flip_lr:
+def _apply_inplane_transform(arr: np.ndarray, rot90_k: int, mirror_lr: bool) -> np.ndarray:
+    """Apply 2D rigid orientation transform (D4 subset) in a deterministic way."""
+    out = np.rot90(arr, int(rot90_k) % 4)
+    if mirror_lr:
         out = np.fliplr(out)
-    if flip_ud:
-        out = np.flipud(out)
     return np.ascontiguousarray(out)
+
+
+def _transform_inplane_zooms(atlas_zooms_xy: tuple[float, float], rot90_k: int) -> tuple[float, float]:
+    # 90/270-degree rotations swap in-plane physical axes.
+    if int(rot90_k) % 2 == 1:
+        return (atlas_zooms_xy[1], atlas_zooms_xy[0])
+    return atlas_zooms_xy
+
+
+def _sanitize_warp(warp: np.ndarray, motion: str) -> np.ndarray:
+    if motion != "affine":
+        return warp
+    a = warp[:, :2]
+    tx, ty = float(warp[0, 2]), float(warp[1, 2])
+    det = float(np.linalg.det(a))
+    try:
+        svals = np.linalg.svd(a, compute_uv=False)
+        anisotropy = float(max(svals) / max(min(svals), 1e-6))
+    except np.linalg.LinAlgError:
+        anisotropy = float("inf")
+    # Prevent pathological slice-by-slice deformation; keep only translation if affine is implausible.
+    if not np.isfinite(det) or det < 0.85 or det > 1.15 or anisotropy > 1.2:
+        return np.array([[1.0, 0.0, tx], [0.0, 1.0, ty]], dtype=np.float32)
+    return warp
 
 
 def _ecc_register(moving: np.ndarray, fixed: np.ndarray, motion: str = "affine", n_iter: int = 500) -> tuple[np.ndarray, float]:
     # moving -> fixed
-    mov = (_normalize_for_display(moving) * 255.0).astype(np.uint8)
-    fix = (_normalize_for_display(fixed) * 255.0).astype(np.uint8)
+    mov_f = _normalize_for_display(moving)
+    fix_f = _normalize_for_display(fixed)
+    mask = _brain_mask2d(moving) & _brain_mask2d(fixed)
+    if np.count_nonzero(mask) >= 50:
+        mov_f = mov_f * mask
+        fix_f = fix_f * mask
+        cv_mask = (mask.astype(np.uint8) * 255)
+    else:
+        cv_mask = None
+
+    mov = (mov_f * 255.0).astype(np.uint8)
+    fix = (fix_f * 255.0).astype(np.uint8)
 
     warp_mode = {
         "translation": cv2.MOTION_TRANSLATION,
@@ -181,9 +226,10 @@ def _ecc_register(moving: np.ndarray, fixed: np.ndarray, motion: str = "affine",
             warpMatrix=warp,
             motionType=warp_mode,
             criteria=criteria,
-            inputMask=None,
+            inputMask=cv_mask,
             gaussFiltSize=5,
         )
+        warp = _sanitize_warp(warp, motion=motion)
         return warp, float(cc)
     except cv2.error:
         return np.eye(2, 3, dtype=np.float32), float("-inf")
@@ -225,17 +271,58 @@ def _linear_map_indices(n_subject: int, subj_start: int, subj_end: int, atlas_st
     return out
 
 
-def _score_flip_combo(subject_stack: np.ndarray, atlas_stack: np.ndarray, atlas_label_stack: np.ndarray, subj_zooms_xy: tuple[float, float], atlas_zooms_xy: tuple[float, float], mapping: list[int | None], flip_lr: bool, flip_ud: bool, rep_slices: list[int], motion: str) -> float:
+def _best_transform_for_mapping(
+    subject_stack: np.ndarray,
+    atlas_stack: np.ndarray,
+    atlas_label_stack: np.ndarray,
+    subj_zooms_xy: tuple[float, float],
+    atlas_zooms_xy: tuple[float, float],
+    mapping: list[int | None],
+    rep_slices: list[int],
+    motion: str,
+) -> tuple[float, int, bool]:
+    transform_scores: list[tuple[float, int, bool]] = []
+    for rot90_k in (0, 1, 2, 3):
+        for mirror_lr in (False, True):
+            sc = _score_inplane_transform(
+                subject_stack=subject_stack,
+                atlas_stack=atlas_stack,
+                atlas_label_stack=atlas_label_stack,
+                subj_zooms_xy=subj_zooms_xy,
+                atlas_zooms_xy=atlas_zooms_xy,
+                mapping=mapping,
+                rot90_k=rot90_k,
+                mirror_lr=mirror_lr,
+                rep_slices=rep_slices,
+                motion=motion,
+            )
+            transform_scores.append((sc, rot90_k, mirror_lr))
+    transform_scores.sort(key=lambda x: x[0], reverse=True)
+    return transform_scores[0]
+
+
+def _score_inplane_transform(
+    subject_stack: np.ndarray,
+    atlas_stack: np.ndarray,
+    atlas_label_stack: np.ndarray,
+    subj_zooms_xy: tuple[float, float],
+    atlas_zooms_xy: tuple[float, float],
+    mapping: list[int | None],
+    rot90_k: int,
+    mirror_lr: bool,
+    rep_slices: list[int],
+    motion: str,
+) -> float:
     scores = []
     for s in rep_slices:
         a = mapping[s]
         if a is None:
             continue
         subj = subject_stack[..., s]
-        atl = atlas_stack[..., a]
-        lab = atlas_label_stack[..., a]
-        atl_rs, _ = _resample_slice_to_subject(atl, lab, atlas_zooms_xy, subj.shape, subj_zooms_xy)
-        atl_rs = _apply_flip2d(atl_rs, flip_lr, flip_ud)
+        atl = _apply_inplane_transform(atlas_stack[..., a], rot90_k=rot90_k, mirror_lr=mirror_lr)
+        lab = _apply_inplane_transform(atlas_label_stack[..., a], rot90_k=rot90_k, mirror_lr=mirror_lr)
+        atlas_zooms_xy_t = _transform_inplane_zooms(atlas_zooms_xy, rot90_k=rot90_k)
+        atl_rs, _ = _resample_slice_to_subject(atl, lab, atlas_zooms_xy_t, subj.shape, subj_zooms_xy)
         warp, cc = _ecc_register(atl_rs, subj, motion=motion)
         if np.isfinite(cc):
             scores.append(cc)
@@ -422,7 +509,8 @@ def main() -> None:
     p.add_argument("--subject-end", type=int, default=None, help="Last subject slice that should receive hippocampus labels.")
     p.add_argument("--atlas-start", type=int, default=None, help="First atlas slice matching subject-start.")
     p.add_argument("--atlas-end", type=int, default=None, help="Last atlas slice matching subject-end.")
-    p.add_argument("--motion", choices=["translation", "euclidean", "affine"], default="affine")
+    p.add_argument("--auto-ap-direction", action="store_true", help="Try both atlas AP directions and pick the one with best score. Default is OFF (respect manual atlas-start/atlas-end direction).")
+    p.add_argument("--motion", choices=["translation", "euclidean", "affine"], default="euclidean")
     p.add_argument("--converted-dir", type=Path, default=None, help="Output folder for converted Bruker NIfTI files. Default: <out-dir>/converted_nifti.")
     p.add_argument("--no-convert-bruker", action="store_true", help="Disable auto-conversion when run folder has no NIfTI files.")
     p.add_argument("--bruker-converter-cmd", default=None, help="Converter executable/wrapper. Default: brkraw")
@@ -556,27 +644,41 @@ def main() -> None:
                 a1 = int(input("atlas-end slice index: ").strip())
 
         s0, s1, a0, a1 = int(s0), int(s1), int(a0), int(a1)
-        mapping = _linear_map_indices(subj_stack.shape[-1], s0, s1, a0, a1)
-
+        if s1 < s0:
+            s0, s1 = s1, s0
         rep = list(np.linspace(s0, s1, min(6, max(2, s1 - s0 + 1))).round().astype(int))
-        flip_scores = []
-        for flr in (False, True):
-            for fud in (False, True):
-                sc = _score_flip_combo(
-                    subject_stack=subj_stack,
-                    atlas_stack=atlas_stack,
-                    atlas_label_stack=atlas_label_stack,
-                    subj_zooms_xy=subj_zooms_xy,
-                    atlas_zooms_xy=atlas_zooms_xy,
-                    mapping=mapping,
-                    flip_lr=flr,
-                    flip_ud=fud,
-                    rep_slices=rep,
-                    motion=args.motion,
-                )
-                flip_scores.append((sc, flr, fud))
-        flip_scores.sort(key=lambda x: x[0], reverse=True)
-        best_score, best_flr, best_fud = flip_scores[0]
+
+        mapping = _linear_map_indices(subj_stack.shape[-1], s0, s1, a0, a1)
+        best_score, best_rot90_k, best_mirror_lr = _best_transform_for_mapping(
+            subject_stack=subj_stack,
+            atlas_stack=atlas_stack,
+            atlas_label_stack=atlas_label_stack,
+            subj_zooms_xy=subj_zooms_xy,
+            atlas_zooms_xy=atlas_zooms_xy,
+            mapping=mapping,
+            rep_slices=rep,
+            motion=args.motion,
+        )
+        best_ap_direction = "atlas_start_to_end"
+        fwd_score = best_score
+        rev_score: float | None = None
+
+        if args.auto_ap_direction:
+            mapping_rev = _linear_map_indices(subj_stack.shape[-1], s0, s1, a1, a0)
+            rev_score, rev_rot90_k, rev_mirror_lr = _best_transform_for_mapping(
+                subject_stack=subj_stack,
+                atlas_stack=atlas_stack,
+                atlas_label_stack=atlas_label_stack,
+                subj_zooms_xy=subj_zooms_xy,
+                atlas_zooms_xy=atlas_zooms_xy,
+                mapping=mapping_rev,
+                rep_slices=rep,
+                motion=args.motion,
+            )
+            if rev_score > fwd_score:
+                mapping = mapping_rev
+                best_score, best_rot90_k, best_mirror_lr = rev_score, rev_rot90_k, rev_mirror_lr
+                best_ap_direction = "atlas_end_to_start"
 
         label_dtype = np.int16 if np.issubdtype(atlas_label_stack.dtype, np.integer) else np.int16
         label_stack_subject = np.zeros(subj_stack.shape, dtype=label_dtype)
@@ -587,11 +689,10 @@ def main() -> None:
             if a is None:
                 continue
             subj_sl = subj_stack[..., s]
-            atl_sl = atlas_stack[..., a]
-            atl_lab_sl = atlas_label_stack[..., a]
-            atl_rs, lab_rs = _resample_slice_to_subject(atl_sl, atl_lab_sl, atlas_zooms_xy, subj_sl.shape, subj_zooms_xy)
-            atl_rs = _apply_flip2d(atl_rs, best_flr, best_fud)
-            lab_rs = _apply_flip2d(lab_rs, best_flr, best_fud)
+            atl_sl = _apply_inplane_transform(atlas_stack[..., a], rot90_k=best_rot90_k, mirror_lr=best_mirror_lr)
+            atl_lab_sl = _apply_inplane_transform(atlas_label_stack[..., a], rot90_k=best_rot90_k, mirror_lr=best_mirror_lr)
+            atlas_zooms_xy_t = _transform_inplane_zooms(atlas_zooms_xy, rot90_k=best_rot90_k)
+            atl_rs, lab_rs = _resample_slice_to_subject(atl_sl, atl_lab_sl, atlas_zooms_xy_t, subj_sl.shape, subj_zooms_xy)
             warp, cc = _ecc_register(atl_rs, subj_sl, motion=args.motion)
             warped_lab = _warp2d(lab_rs.astype(np.float32), warp, subj_sl.shape, order=0)
             label_stack_subject[..., s] = np.rint(warped_lab).astype(label_dtype)
@@ -606,7 +707,16 @@ def main() -> None:
         nib.save(nib.Nifti1Image((label_raw > 0).astype(np.uint8), subj_img.affine, subj_img.header), str(out_mask))
 
         qc_png = case_dir / "qc_overlay_montage.png"
-        _overlay_qc(subj_stack, label_stack_subject, qc_png, title=f"QC overlay | atlas axis={atlas_axis} rev={int(atlas_reverse)} flipLR={int(best_flr)} flipUD={int(best_fud)}")
+        _overlay_qc(
+            subj_stack,
+            label_stack_subject,
+            qc_png,
+            title=(
+                f"QC overlay | atlas axis={atlas_axis} rev={int(atlas_reverse)} "
+                f"rot90k={int(best_rot90_k)} mirrorLR={int(best_mirror_lr)} "
+                f"apDir={best_ap_direction}"
+            ),
+        )
 
         info = {
             "input_subject": str(subj_path),
@@ -616,9 +726,12 @@ def main() -> None:
             "atlas_reverse": bool(atlas_reverse),
             "subject_slice_range": [int(s0), int(s1)],
             "atlas_slice_range": [int(a0), int(a1)],
-            "best_inplane_flip_lr": bool(best_flr),
-            "best_inplane_flip_ud": bool(best_fud),
-            "best_flip_score_median_ecc": float(best_score),
+            "best_inplane_rot90_k": int(best_rot90_k),
+            "best_inplane_mirror_lr": bool(best_mirror_lr),
+            "best_inplane_score_median_ecc": float(best_score),
+            "best_ap_direction": best_ap_direction,
+            "ap_direction_score_start_to_end": float(fwd_score),
+            "ap_direction_score_end_to_start": (float(rev_score) if rev_score is not None else None),
             "per_slice_scores": per_slice_scores,
             "output_labels": str(out_labels),
             "output_mask": str(out_mask),
