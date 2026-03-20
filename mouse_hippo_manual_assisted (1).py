@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -237,9 +238,32 @@ def _overlay_qc(subject_stack: np.ndarray, label_stack: np.ndarray, out_png: Pat
     _montage(subject_stack, out_png, title=title, overlay3d=label_stack)
 
 
+def _safe_name(x: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9._-]+", "_", x.strip())
+    return s.strip("._-") or "unnamed"
+
+
+def _discover_nifti_under(path: Path) -> list[Path]:
+    out = sorted([p for p in path.rglob("*.nii") if p.is_file()])
+    out.extend(sorted([p for p in path.rglob("*.nii.gz") if p.is_file()]))
+    # de-duplicate while preserving order
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for p in out:
+        rp = p.resolve()
+        if rp in seen:
+            continue
+        seen.add(rp)
+        unique.append(p)
+    return unique
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Manual-assisted hippocampus labeling for coronal 2D mouse T2 slabs.")
-    p.add_argument("--input-nii", type=Path, action="append", required=True)
+    p.add_argument("--input-nii", type=Path, action="append", default=None, help="Direct NIfTI input(s).")
+    p.add_argument("--project-root", type=Path, default=None, help="Main project folder that contains experiment folders.")
+    p.add_argument("--experiment", type=str, default=None, help="Experiment folder name under --project-root.")
+    p.add_argument("--run", type=str, default=None, help="Run folder name under --project-root/--experiment.")
     p.add_argument("--atlas-template", type=Path, required=True)
     p.add_argument("--atlas-labels", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, default=Path("analysis_out_manual_coronal"))
@@ -256,6 +280,23 @@ def main() -> None:
         raise SystemExit(f"Atlas template not found: {args.atlas_template}")
     if not args.atlas_labels.exists():
         raise SystemExit(f"Atlas labels not found: {args.atlas_labels}")
+
+    if args.input_nii and any(v is not None for v in (args.project_root, args.experiment, args.run)):
+        raise SystemExit("Use either --input-nii OR the --project-root/--experiment/--run triplet, not both.")
+
+    if args.input_nii:
+        input_subjects = args.input_nii
+    else:
+        if not all(v is not None for v in (args.project_root, args.experiment, args.run)):
+            raise SystemExit("Provide --input-nii, or provide all of --project-root, --experiment, and --run.")
+        run_dir = args.project_root / args.experiment / args.run
+        if not run_dir.exists():
+            raise SystemExit(f"Run folder not found: {run_dir}")
+        input_subjects = _discover_nifti_under(run_dir)
+        if not input_subjects:
+            raise SystemExit(f"No NIfTI files found under: {run_dir}")
+        if args.out_dir == Path("analysis_out_manual_coronal"):
+            args.out_dir = Path(f"analysis_out_manual_coronal_{_safe_name(args.experiment)}_{_safe_name(args.run)}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -290,7 +331,7 @@ def main() -> None:
         "subjects": [],
     }
 
-    for subj_path in args.input_nii:
+    for subj_path in input_subjects:
         if not subj_path.exists():
             summary["subjects"].append({"input_subject": str(subj_path), "status": "failed", "error": "file not found"})
             continue

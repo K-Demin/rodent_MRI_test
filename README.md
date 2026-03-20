@@ -77,3 +77,30 @@ Notes:
 - SPM backend requires MATLAB (or SPM standalone launcher) and a valid SPM installation.
 - For rodents, provide rodent TPM via `--spm-tpm` and prefer `--spm-affreg none`.
 - DG output is a segmentation-derived proxy, not an atlas-validated dentate gyrus segmentation.
+
+## Manual-assisted hippocampus script (experiment/run layout)
+
+`mouse_hippo_manual_assisted.py` (and `mouse_hippo_manual_assisted (1).py`) now supports selecting data by `experiment` + `run` inside a project root.
+
+You can still pass direct NIfTI inputs:
+
+```bash
+python3 mouse_hippo_manual_assisted.py \
+  --input-nii /path/to/subj.nii.gz \
+  --atlas-template /path/to/atlas_template.nii.gz \
+  --atlas-labels /path/to/atlas_labels.nii.gz
+```
+
+Or point at a project hierarchy like `main_project_folder/<experiment>/<run>`:
+
+```bash
+python3 mouse_hippo_manual_assisted.py \
+  --project-root /path/to/main_project_folder \
+  --experiment expA \
+  --run 11 \
+  --atlas-template /path/to/atlas_template.nii.gz \
+  --atlas-labels /path/to/atlas_labels.nii.gz
+```
+
+When using `--project-root/--experiment/--run` and leaving `--out-dir` at default, output is automatically named:
+`analysis_out_manual_coronal_<experiment>_<run>`.
