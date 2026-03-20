@@ -104,3 +104,21 @@ python3 mouse_hippo_manual_assisted.py \
 
 When using `--project-root/--experiment/--run` and leaving `--out-dir` at default, output is automatically named:
 `analysis_out_manual_coronal_<experiment>_<run>`.
+
+If a run folder has only Bruker raw data (no `.nii/.nii.gz` yet), the script now auto-converts first and then continues the full manual-assisted workflow end-to-end:
+
+```bash
+python3 mouse_hippo_manual_assisted.py \
+  --project-root /path/to/main_project_folder \
+  --experiment expA \
+  --run 11 \
+  --atlas-template /path/to/atlas_template.nii.gz \
+  --atlas-labels /path/to/atlas_labels.nii.gz
+```
+
+Converted files are written under `<out-dir>/converted_nifti` by default (so they are experiment/run-specific when default output naming is used). You can customize with:
+
+- `--converted-dir /path/to/converted`
+- `--bruker-converter-cmd brkraw`
+- `--bruker-converter-args auto`
+- `--no-convert-bruker` (to require pre-existing NIfTI inputs)

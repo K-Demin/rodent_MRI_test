@@ -29,6 +29,9 @@ import argparse
 import json
 import math
 import re
+import shlex
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Iterable
 
@@ -265,6 +268,106 @@ def _discover_nifti_under(path: Path) -> list[Path]:
     return unique
 
 
+def _run(cmd: list[str]) -> None:
+    print("+", " ".join(cmd))
+    subprocess.run(cmd, check=True)
+
+
+def _require_cmd(name: str) -> None:
+    if shutil.which(name) is None:
+        raise SystemExit(f"Required command not found in PATH: {name}")
+
+
+def _is_scan_like_dir(path: Path) -> bool:
+    return (
+        path.is_dir()
+        and path.name.isdigit()
+        and (path / "acqp").exists()
+        and (path / "method").exists()
+    )
+
+
+def _looks_like_t2_scan(scan_dir: Path) -> bool:
+    method = scan_dir / "method"
+    if not method.exists():
+        return False
+    txt = method.read_text(errors="ignore").lower()
+    return any(tok in txt for tok in ("rare", "turborare", "t2"))
+
+
+def _converter_commands(converter_cmd: str, args_template: str, input_dir: Path, output_dir: Path) -> list[list[str]]:
+    def build(template: str) -> list[str]:
+        rendered = template.format(
+            input=input_dir.as_posix(),
+            output=output_dir.as_posix(),
+            scan_id=input_dir.name,
+        )
+        return shlex.split(converter_cmd) + shlex.split(rendered)
+
+    if args_template.strip().lower() != "auto":
+        return [build(args_template)]
+
+    templates = [
+        "convert {input} -o {output}",
+        "convert -i {input} -o {output}",
+        "convert-batch {input} -o {output}",
+        "convert-batch -i {input} -o {output}",
+        "tonii {input} -o {output}",
+    ]
+    return [build(tpl) for tpl in templates]
+
+
+def _convert_run_bruker_to_nifti(
+    run_dir: Path,
+    converted_dir: Path,
+    converter_cmd: str | None,
+    converter_args: str,
+) -> list[Path]:
+    resolved_cmd = converter_cmd or "brkraw"
+    _require_cmd(shlex.split(resolved_cmd)[0])
+    converted_dir.mkdir(parents=True, exist_ok=True)
+
+    scan_dirs = [d for d in sorted(run_dir.iterdir()) if _is_scan_like_dir(d)]
+    t2_scans = [d for d in scan_dirs if _looks_like_t2_scan(d)] or scan_dirs
+    candidates = t2_scans or [run_dir]
+
+    found: list[Path] = []
+    for scan in candidates:
+        scan_out = converted_dir / f"scan_{scan.name}"
+        if scan_out.exists():
+            shutil.rmtree(scan_out)
+        scan_out.mkdir(parents=True, exist_ok=True)
+
+        success = False
+        for cmd in _converter_commands(resolved_cmd, converter_args, scan, scan_out):
+            try:
+                _run(cmd)
+            except subprocess.CalledProcessError:
+                continue
+            success = True
+            break
+
+        if success:
+            found.extend(_discover_nifti_under(scan_out))
+
+    # fallback: some converters need a study root rather than scan folder
+    if not found:
+        study_out = converted_dir / "study_root"
+        if study_out.exists():
+            shutil.rmtree(study_out)
+        study_out.mkdir(parents=True, exist_ok=True)
+        for cmd in _converter_commands(resolved_cmd, converter_args, run_dir, study_out):
+            try:
+                _run(cmd)
+            except subprocess.CalledProcessError:
+                continue
+            found.extend(_discover_nifti_under(study_out))
+            if found:
+                break
+
+    return found
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Manual-assisted hippocampus labeling for coronal 2D mouse T2 slabs.")
     p.add_argument("--input-nii", type=Path, action="append", default=None, help="Direct NIfTI input(s).")
@@ -281,6 +384,10 @@ def main() -> None:
     p.add_argument("--atlas-start", type=int, default=None, help="First atlas slice matching subject-start.")
     p.add_argument("--atlas-end", type=int, default=None, help="Last atlas slice matching subject-end.")
     p.add_argument("--motion", choices=["translation", "euclidean", "affine"], default="affine")
+    p.add_argument("--converted-dir", type=Path, default=None, help="Output folder for converted Bruker NIfTI files. Default: <out-dir>/converted_nifti.")
+    p.add_argument("--no-convert-bruker", action="store_true", help="Disable auto-conversion when run folder has no NIfTI files.")
+    p.add_argument("--bruker-converter-cmd", default=None, help="Converter executable/wrapper. Default: brkraw")
+    p.add_argument("--bruker-converter-args", default="auto", help="Converter argument template, or 'auto' to try common forms.")
     args = p.parse_args()
 
     if not args.atlas_template.exists():
@@ -296,14 +403,28 @@ def main() -> None:
     else:
         if not all(v is not None for v in (args.project_root, args.experiment, args.run)):
             raise SystemExit("Provide --input-nii, or provide all of --project-root, --experiment, and --run.")
+        if args.out_dir == Path("analysis_out_manual_coronal"):
+            args.out_dir = Path(f"analysis_out_manual_coronal_{_safe_name(args.experiment)}_{_safe_name(args.run)}")
         run_dir = args.project_root / args.experiment / args.run
         if not run_dir.exists():
             raise SystemExit(f"Run folder not found: {run_dir}")
         input_subjects = _discover_nifti_under(run_dir)
         if not input_subjects:
-            raise SystemExit(f"No NIfTI files found under: {run_dir}")
-        if args.out_dir == Path("analysis_out_manual_coronal"):
-            args.out_dir = Path(f"analysis_out_manual_coronal_{_safe_name(args.experiment)}_{_safe_name(args.run)}")
+            if args.no_convert_bruker:
+                raise SystemExit(f"No NIfTI files found under: {run_dir}")
+            converted_dir = args.converted_dir or (args.out_dir / "converted_nifti")
+            print(f"No NIfTI found under run folder. Attempting Bruker conversion into: {converted_dir}")
+            input_subjects = _convert_run_bruker_to_nifti(
+                run_dir=run_dir,
+                converted_dir=converted_dir,
+                converter_cmd=args.bruker_converter_cmd,
+                converter_args=args.bruker_converter_args,
+            )
+            if not input_subjects:
+                raise SystemExit(
+                    "Bruker conversion did not produce NIfTI files. "
+                    "Try --bruker-converter-cmd/--bruker-converter-args or provide --input-nii."
+                )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
