@@ -1,26 +1,60 @@
 #!/usr/bin/env python3
-"""Closed-loop AFNI/SPM pipeline for rodent T2 MRI folders.
+"""Find hippocampus / DG on rodent Bruker T2 scans using direct ANTs registration
+to a manually AP-cropped atlas.
 
-Given an input folder, this script can:
-1) discover candidate T2 NIfTI files,
-2) run AFNI and/or SPM preprocessing,
-3) derive a DG proxy coordinate from segmentation outputs,
-4) emit a single machine-readable summary file.
+Key fixes in this version
+-------------------------
+1) Do NOT infer atlas AP direction from affine A/P labels for cropping.
+   Instead, crop the template using:
+      - a MANUAL AP voxel axis
+      - a MANUAL anterior side ("low" or "high")
+   because the template affine/orientation may be wrong.
+
+2) Keep subject preparation simple:
+      - canonicalize with nibabel
+      - isotropic resample
+      - optional unifize
+   No manual x/y/z flip logic.
+
+3) Registration defaults to RIGID ONLY, because affine can introduce mirror-like
+   solutions on ambiguous slab data.
+
+4) Save extra debug information, including affine determinant inspection.
+
+Workflow
+--------
+1) discover or convert Bruker scans to NIfTI
+2) keep target scan IDs (default: 5 and 13)
+3) prepare subject: canonicalize orientation, isotropic resample, optional unifize
+4) fix suspicious atlas/header voxel units if needed
+5) canonicalize atlas template + labels
+6) crop atlas/template using MANUAL AP axis and MANUAL anterior side
+7) register subject slab -> cropped atlas with ANTs rigid (default) or rigid+affine
+8) warp cropped atlas labels into subject space with nearest-neighbor interpolation
+9) optionally extract selected label IDs into a binary mask and centroid
+10) write summary.json
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import shutil
 import subprocess
-import textwrap
 from pathlib import Path
 
 
-def _is_hidden_or_env_path(path: Path) -> bool:
-    return any(part.startswith(".") for part in path.parts)
+EXCLUDED_DIR_NAMES = {
+    "analysis_out",
+    "mouse_atlas",
+    "atlas",
+    "templates",
+    ".git",
+    ".venv",
+    "__pycache__",
+}
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
@@ -32,25 +66,44 @@ def _require_cmd(name: str) -> None:
     if shutil.which(name) is None:
         raise SystemExit(
             f"Required command '{name}' not found in PATH. "
-            "Install the required neuroimaging package and retry."
+            "Install it or pass a different wrapper command."
         )
 
 
-def _find_t2_niftis(root: Path) -> list[Path]:
-    all_nifti = sorted([*root.rglob("*.nii"), *root.rglob("*.nii.gz")])
-    all_nifti = [p for p in all_nifti if not _is_hidden_or_env_path(p.relative_to(root))]
-    if not all_nifti:
-        return []
+def _rm_if_exists(path: Path) -> None:
+    if path.is_file() or path.is_symlink():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
 
-    t2 = [p for p in all_nifti if "t2" in p.name.lower() or "rare" in p.name.lower()]
-    return t2 or all_nifti
+
+def _is_hidden_or_env_path(path: Path) -> bool:
+    return any(part.startswith(".") for part in path.parts)
+
+
+def _is_scan_like_dir(path: Path) -> bool:
+    return (
+        path.is_dir()
+        and path.name.isdigit()
+        and (path / "acqp").exists()
+        and (path / "method").exists()
+    )
+
+
+def _looks_like_bruker_root(root: Path) -> bool:
+    if (root / "study.MR").exists() and (root / "subject").exists():
+        return True
+    if (root / "pdata" / "1" / "2dseq").exists():
+        return True
+    if any(root.glob("pdata/*/2dseq")):
+        return True
+    return any(root.glob("*/pdata/*/2dseq"))
 
 
 def _looks_like_t2_bruker_scan(scan_dir: Path) -> bool:
     method_path = scan_dir / "method"
     if not method_path.exists():
         return False
-
     try:
         method_text = method_path.read_text(errors="ignore").lower()
     except OSError:
@@ -66,59 +119,64 @@ def _looks_like_t2_bruker_scan(scan_dir: Path) -> bool:
 
 
 def _scan_dirs_in_tree(root: Path) -> list[Path]:
-    scan_dirs: list[Path] = []
-
+    out: list[Path] = []
     if _is_scan_like_dir(root):
-        scan_dirs.append(root)
-
+        out.append(root)
     for child in sorted(root.iterdir()):
         if _is_scan_like_dir(child):
-            scan_dirs.append(child)
+            out.append(child)
+    return out
 
-    return scan_dirs
+
+def _find_t2_niftis(root: Path, exclude_paths: list[Path] | None = None) -> list[Path]:
+    exclude_paths = [p.resolve() for p in (exclude_paths or [])]
+    all_nifti = sorted([*root.rglob("*.nii"), *root.rglob("*.nii.gz")])
+
+    kept: list[Path] = []
+    for p in all_nifti:
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            continue
+
+        if _is_hidden_or_env_path(rel):
+            continue
+        if any(part in EXCLUDED_DIR_NAMES for part in rel.parts):
+            continue
+
+        rp = p.resolve()
+        skip = False
+        for ex in exclude_paths:
+            if rp == ex or ex in rp.parents:
+                skip = True
+                break
+        if skip:
+            continue
+
+        name = p.name.lower()
+        if any(tok in name for tok in ("annotation", "template", "atlas", "label", "roi")):
+            continue
+
+        kept.append(p)
+
+    if not kept:
+        return []
+
+    t2 = [p for p in kept if any(tok in p.name.lower() for tok in ("t2", "rare", "turborare"))]
+    return t2 or kept
 
 
 def _is_3d_nifti(path: Path) -> bool:
     try:
         import nibabel as nib
-    except Exception:
-        return True
-
-    try:
         shape = nib.load(str(path)).shape
+        return len(shape) == 3
     except Exception:
         return False
-    return len(shape) == 3
-
-
-def _looks_like_bruker_root(root: Path) -> bool:
-    if (root / "study.MR").exists() and (root / "subject").exists():
-        return True
-
-    # Allow pointing --input-root either to a full ParaVision study folder
-    # or directly to a single scan folder (e.g. .../<scan_id>/).
-    if (root / "pdata" / "1" / "2dseq").exists():
-        return True
-
-    # Variant where pdata sits directly under the provided root.
-    if any(root.glob("pdata/*/2dseq")):
-        return True
-
-    # Study-level layout where scan folders are direct children of root.
-    return any(root.glob("*/pdata/*/2dseq"))
-
-
-def _is_scan_like_dir(path: Path) -> bool:
-    return path.is_dir() and path.name.isdigit() and (path / "acqp").exists() and (path / "method").exists()
 
 
 def _bruker_input_candidates(root: Path) -> list[Path]:
     candidates = [root]
-
-    # Common operator mistakes:
-    # - passing a single scan folder (.../5)
-    # - passing a nested pdata path (.../5/pdata/1)
-    # Add likely scan/study ancestors as fallback converter inputs.
     ancestors = [root, *root.parents]
     for anc in ancestors:
         if anc == anc.parent:
@@ -129,18 +187,16 @@ def _bruker_input_candidates(root: Path) -> list[Path]:
         elif (anc / "study.MR").exists():
             candidates.append(anc)
 
-    # If user points inside pdata tree, include immediate parents explicitly.
     if "pdata" in root.parts:
         pdata_idx = root.parts.index("pdata")
         if pdata_idx > 0:
             scan_guess = Path(*root.parts[:pdata_idx])
             candidates.extend([scan_guess, scan_guess.parent])
 
-    # De-duplicate while preserving order.
     uniq: list[Path] = []
-    for item in candidates:
-        if item not in uniq:
-            uniq.append(item)
+    for c in candidates:
+        if c not in uniq:
+            uniq.append(c)
     return uniq
 
 
@@ -149,6 +205,34 @@ def _resolve_bruker_converter(converter_cmd: str | None) -> str:
     converter_exe = shlex.split(resolved)[0]
     _require_cmd(converter_exe)
     return resolved
+
+
+def _converter_commands(
+    converter_cmd: str,
+    converter_args_template: str,
+    input_dir: Path,
+    output_dir: Path,
+) -> list[list[str]]:
+    scan_id = input_dir.name
+
+    def build(template: str) -> list[str]:
+        rendered = template.format(
+            input=input_dir.as_posix(),
+            output=output_dir.as_posix(),
+            scan_id=scan_id,
+        )
+        return shlex.split(converter_cmd) + shlex.split(rendered)
+
+    if converter_args_template.strip().lower() != "auto":
+        return [build(converter_args_template)]
+
+    candidates = [
+        "convert {input} -o {output}",
+        "convert -i {input} -o {output}",
+        "convert-batch {input} -o {output}",
+        "convert-batch -i {input} -o {output}",
+    ]
+    return [build(tpl) for tpl in candidates]
 
 
 def _convert_bruker_to_nifti(
@@ -168,29 +252,15 @@ def _convert_bruker_to_nifti(
             shutil.rmtree(attempt_out)
         attempt_out.mkdir(parents=True, exist_ok=True)
 
-        try:
-            converter_args = converter_args_template.format(
-                input=candidate.as_posix(),
-                output=attempt_out.as_posix(),
-            )
-        except KeyError as exc:
-            raise SystemExit(
-                "Invalid --bruker-converter-args template. "
-                "Use placeholders {input} and/or {output}."
-            ) from exc
-
-        cmd = shlex.split(resolved_converter) + shlex.split(converter_args)
         if candidate != input_root:
             print(f"Retrying Bruker conversion with likely study root: {candidate}")
 
-        commands = _converter_commands(
+        for cmd in _converter_commands(
             converter_cmd=resolved_converter,
             converter_args_template=converter_args_template,
             input_dir=candidate,
             output_dir=attempt_out,
-        )
-
-        for cmd in commands:
+        ):
             try:
                 _run(cmd)
             except subprocess.CalledProcessError as exc:
@@ -204,297 +274,618 @@ def _convert_bruker_to_nifti(
     if last_error is not None:
         raise SystemExit(
             "Bruker conversion failed for all candidate input paths. "
-            "Clean --out-dir/converted_nifti and verify input points to a Bruker study or scan folder. "
-            "If brkraw is installed, try --bruker-converter-args 'auto' (default) or inspect 'brkraw convert -h'."
+            "Check input root and converter arguments."
         ) from last_error
 
     return _find_t2_niftis(converted_dir)
 
 
-def run_afni(input_nii: Path, out_dir: Path, species: str) -> dict[str, str]:
-    required = ["3dcopy", "3dcalc", "3dAutomask", "3dUnifize", "3dSkullStrip"]
-    for cmd in required:
-        _require_cmd(cmd)
+def _get_orientation_info(nii: Path) -> dict[str, object]:
+    try:
+        import nibabel as nib
+        img = nib.load(str(nii))
+        return {
+            "path": str(nii),
+            "shape": [int(v) for v in img.shape[:3]],
+            "zooms": [float(v) for v in img.header.get_zooms()[:3]],
+            "axcodes": list(nib.aff2axcodes(img.affine)),
+            "affine": [[float(x) for x in row] for row in img.affine.tolist()],
+        }
+    except Exception as exc:
+        return {
+            "path": str(nii),
+            "error": str(exc),
+        }
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    copied = out_dir / "input.nii.gz"
-    _run(["3dcopy", str(input_nii), str(copied)])
 
-    unifized = out_dir / "input_unifized.nii.gz"
-    _run(["3dUnifize", "-input", str(copied), "-prefix", str(unifized)])
+def _canonicalize_nifti(input_nii: Path, output_nii: Path) -> dict[str, object]:
+    try:
+        import nibabel as nib
+        import numpy as np
+    except Exception as exc:
+        raise SystemExit("Canonical orientation requires nibabel and numpy.") from exc
 
-    automask = out_dir / "brain_mask.nii.gz"
-    _run(["3dAutomask", "-prefix", str(automask), str(unifized)])
+    img = nib.load(str(input_nii))
+    before = nib.aff2axcodes(img.affine)
 
-    skullstrip = out_dir / "brain_ss.nii.gz"
-    skullstrip_cmd = ["3dSkullStrip", "-input", str(unifized), "-prefix", str(skullstrip)]
-    if species in {"mouse", "rat"}:
-        skullstrip_cmd.extend(["-rat", "-push_to_edge"])
-    _run(skullstrip_cmd)
+    can = nib.as_closest_canonical(img)
+    after = nib.aff2axcodes(can.affine)
 
-    masked = out_dir / "brain_masked.nii.gz"
-    _run(
-        [
-            "3dcalc",
-            "-a",
-            str(unifized),
-            "-b",
-            str(automask),
-            "-expr",
-            "a*step(b)",
-            "-prefix",
-            str(masked),
-        ]
-    )
+    hdr = can.header.copy()
+    aff = can.affine.copy()
+    out = nib.Nifti1Image(np.asarray(can.get_fdata(), dtype="float32"), aff, hdr)
+    out.set_qform(aff, code=1)
+    out.set_sform(aff, code=1)
+    nib.save(out, str(output_nii))
 
     return {
-        "input": str(copied),
-        "unifized": str(unifized),
-        "mask": str(automask),
-        "skullstrip": str(skullstrip),
-        "masked": str(masked),
+        "input": str(input_nii),
+        "output": str(output_nii),
+        "before_axcodes": list(before),
+        "after_axcodes": list(after),
+        "shape": [int(v) for v in out.shape[:3]],
+        "zooms": [float(v) for v in out.header.get_zooms()[:3]],
     }
 
 
-def _write_spm_batch(input_nii: Path, out_dir: Path, spm_dir: Path, tpm_path: Path, affreg: str) -> Path:
-    batch = textwrap.dedent(
-        f"""
-        addpath('{spm_dir.as_posix()}');
-        spm('defaults', 'fmri');
-        spm_jobman('initcfg');
+def _fix_nifti_units_if_suspicious(input_nii: Path, out_nii: Path) -> dict[str, object]:
+    try:
+        import nibabel as nib
+    except Exception as exc:
+        raise SystemExit("This script requires nibabel for NIfTI header handling.") from exc
 
-        matlabbatch{{1}}.spm.spatial.preproc.channel.vols = {{'{input_nii.as_posix()},1'}};
-        matlabbatch{{1}}.spm.spatial.preproc.channel.biasreg = 0.001;
-        matlabbatch{{1}}.spm.spatial.preproc.channel.biasfwhm = 60;
-        matlabbatch{{1}}.spm.spatial.preproc.channel.write = [1 1];
+    img = nib.load(str(input_nii))
+    hdr = img.header.copy()
+    aff = img.affine.copy()
+    zooms = hdr.get_zooms()[:3]
+    max_abs_zoom = max(abs(float(z)) for z in zooms)
 
-        tpm = '{tpm_path.as_posix()}';
-        for k = 1:6
-            matlabbatch{{1}}.spm.spatial.preproc.tissue(k).tpm = {{sprintf('%s,%d', tpm, k)}};
-            matlabbatch{{1}}.spm.spatial.preproc.tissue(k).ngaus = 1;
-            matlabbatch{{1}}.spm.spatial.preproc.tissue(k).native = [1 0];
-            matlabbatch{{1}}.spm.spatial.preproc.tissue(k).warped = [0 0];
-        end
+    applied = False
+    scale = 1.0
+    if max_abs_zoom > 5.0:
+        scale = 0.001
+        aff[:3, :4] *= scale
+        try:
+            hdr.set_zooms(tuple(float(z) * scale for z in hdr.get_zooms()))
+        except Exception:
+            pass
+        applied = True
 
-        matlabbatch{{1}}.spm.spatial.preproc.warp.mrf = 1;
-        matlabbatch{{1}}.spm.spatial.preproc.warp.cleanup = 1;
-        matlabbatch{{1}}.spm.spatial.preproc.warp.reg = [0 0.001 0.5 0.05 0.2];
-        matlabbatch{{1}}.spm.spatial.preproc.warp.affreg = '{affreg}';
-        matlabbatch{{1}}.spm.spatial.preproc.warp.fwhm = 0;
-        matlabbatch{{1}}.spm.spatial.preproc.warp.samp = 3;
-        matlabbatch{{1}}.spm.spatial.preproc.warp.write = [1 1];
+    out_img = nib.Nifti1Image(img.get_fdata(dtype="float32"), aff, hdr)
+    out_img.set_qform(aff, code=1)
+    out_img.set_sform(aff, code=1)
+    nib.save(out_img, str(out_nii))
 
-        cd('{out_dir.as_posix()}');
-        spm_jobman('run', matlabbatch);
-        exit;
-        """
-    ).strip()
+    try:
+        import nibabel as nib
+        out_axcodes = list(nib.aff2axcodes(aff))
+    except Exception:
+        out_axcodes = None
 
-    batch_path = out_dir / "spm_segment_job.m"
-    batch_path.write_text(batch + "\n")
-    return batch_path
+    return {
+        "input": str(input_nii),
+        "output": str(out_nii),
+        "input_zooms": [float(z) for z in zooms],
+        "output_axcodes": out_axcodes,
+        "applied_scale_factor": float(scale),
+        "units_fix_applied": bool(applied),
+    }
 
 
-def run_spm(
-    input_nii: Path,
-    out_dir: Path,
-    spm_dir: Path,
-    matlab_cmd: str,
-    tpm_path: Path,
-    affreg: str,
-) -> dict[str, str]:
-    if not spm_dir.exists():
-        raise SystemExit(f"SPM directory does not exist: {spm_dir}")
+def _crop_template_remove_anterior_only_manual(
+    template_nii: Path,
+    labels_nii: Path,
+    out_template_nii: Path,
+    out_labels_nii: Path,
+    ap_axis: int,
+    anterior_side: str,
+    anterior_margin_mm: float = 1.0,
+) -> dict[str, object]:
+    """
+    Remove only the anterior part of the atlas using MANUAL voxel-side definition.
 
-    matlab = matlab_cmd.split()[0]
-    _require_cmd(matlab)
+    Parameters
+    ----------
+    ap_axis : int
+        Voxel axis corresponding to AP direction: 0, 1, or 2.
+    anterior_side : str
+        Which end of that voxel axis is anterior: "low" or "high".
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    batch_path = _write_spm_batch(
-        input_nii=input_nii,
-        out_dir=out_dir,
-        spm_dir=spm_dir,
-        tpm_path=tpm_path,
-        affreg=affreg,
-    )
+    Notes
+    -----
+    This function does NOT trust affine A/P labels.
+    """
+    try:
+        import nibabel as nib
+        import numpy as np
+    except Exception as exc:
+        raise SystemExit("Manual anterior-only atlas cropping requires nibabel and numpy.") from exc
 
-    if matlab == "matlab":
-        _run(["matlab", "-batch", f"run('{batch_path.as_posix()}')"])
+    if ap_axis not in (0, 1, 2):
+        raise SystemExit(f"ap_axis must be 0, 1, or 2; got {ap_axis}")
+    if anterior_side not in ("low", "high"):
+        raise SystemExit(f"anterior_side must be 'low' or 'high'; got {anterior_side}")
+
+    timg = nib.load(str(template_nii))
+    limg = nib.load(str(labels_nii))
+    tdat = np.asarray(timg.get_fdata())
+    ldat = np.asarray(limg.get_fdata())
+
+    if tdat.shape != ldat.shape:
+        raise SystemExit(f"Template and labels shapes differ: {tdat.shape} vs {ldat.shape}")
+
+    mask = ldat != 0
+    if not np.any(mask):
+        raise SystemExit("Atlas label volume has no nonzero voxels, so it cannot define a crop.")
+
+    ijk = np.where(mask)
+    mins = np.array([ijk[0].min(), ijk[1].min(), ijk[2].min()], dtype=int)
+    maxs = np.array([ijk[0].max(), ijk[1].max(), ijk[2].max()], dtype=int)
+
+    zooms = np.array([abs(float(z)) for z in limg.header.get_zooms()[:3]], dtype=float)
+    margin_vox = int(np.ceil(anterior_margin_mm / max(zooms[ap_axis], 1e-6)))
+
+    start = np.array([0, 0, 0], dtype=int)
+    stop = np.array(ldat.shape, dtype=int)
+
+    if anterior_side == "high":
+        stop[ap_axis] = min(maxs[ap_axis] + margin_vox + 1, ldat.shape[ap_axis])
     else:
-        _run(matlab_cmd.split() + [str(batch_path)])
+        start[ap_axis] = max(mins[ap_axis] - margin_vox, 0)
 
-    stem = input_nii.name
-    if stem.endswith(".nii.gz"):
-        stem = stem[:-7]
-    elif stem.endswith(".nii"):
-        stem = stem[:-4]
+    xs = slice(start[0], stop[0])
+    ys = slice(start[1], stop[1])
+    zs = slice(start[2], stop[2])
 
-    outputs = {
-        "gm": str(out_dir / f"c1{stem}.nii"),
-        "wm": str(out_dir / f"c2{stem}.nii"),
-        "csf": str(out_dir / f"c3{stem}.nii"),
-        "deformation": str(out_dir / f"y_{stem}.nii"),
+    t_crop = tdat[xs, ys, zs]
+    l_crop = ldat[xs, ys, zs]
+
+    new_aff = limg.affine.copy()
+    offset = np.array([start[0], start[1], start[2], 1.0], dtype=float)
+    new_aff[:3, 3] = (limg.affine @ offset)[:3]
+
+    t_out = nib.Nifti1Image(t_crop.astype("float32"), new_aff, timg.header.copy())
+    l_out = nib.Nifti1Image(l_crop.astype(ldat.dtype), new_aff, limg.header.copy())
+
+    t_out.set_qform(new_aff, code=1)
+    t_out.set_sform(new_aff, code=1)
+    l_out.set_qform(new_aff, code=1)
+    l_out.set_sform(new_aff, code=1)
+
+    nib.save(t_out, str(out_template_nii))
+    nib.save(l_out, str(out_labels_nii))
+
+    return {
+        "template_cropped": str(out_template_nii),
+        "labels_cropped": str(out_labels_nii),
+        "manual_ap_axis": int(ap_axis),
+        "manual_anterior_side": str(anterior_side),
+        "mins_ijk": [int(v) for v in mins],
+        "maxs_ijk": [int(v) for v in maxs],
+        "start_ijk": [int(v) for v in start],
+        "stop_ijk": [int(v) for v in stop],
+        "anterior_margin_mm": float(anterior_margin_mm),
+        "cropped_shape": [int(v) for v in t_crop.shape],
     }
-    return outputs
 
 
-def _estimate_dg_from_spm(gm_path: Path) -> dict[str, list[float]] | None:
+def _extract_label_mask(labels_nii: Path, out_mask_nii: Path, label_ids: list[int]) -> dict[str, object] | None:
     try:
         import nibabel as nib
         import numpy as np
     except Exception:
         return None
 
-    if not gm_path.exists():
+    img = nib.load(str(labels_nii))
+    data = np.asarray(img.get_fdata())
+    mask = np.isin(data, np.array(label_ids, dtype=data.dtype))
+
+    out = nib.Nifti1Image(mask.astype("uint8"), img.affine, img.header.copy())
+    out.set_qform(img.affine, code=1)
+    out.set_sform(img.affine, code=1)
+    nib.save(out, str(out_mask_nii))
+
+    return {
+        "mask": str(out_mask_nii),
+        "label_ids": [int(x) for x in label_ids],
+        "nonzero_voxels": int(mask.sum()),
+    }
+
+
+def _mask_centroid_mm(mask_nii: Path) -> dict[str, list[float]] | None:
+    try:
+        import nibabel as nib
+        import numpy as np
+    except Exception:
         return None
 
-    img = nib.load(str(gm_path))
-    gm = np.asarray(img.get_fdata(), dtype=float)
-    if gm.ndim != 3 or gm.size == 0:
+    img = nib.load(str(mask_nii))
+    data = np.asarray(img.get_fdata()) > 0
+    if not data.any():
         return None
 
-    thr = np.percentile(gm[gm > 0], 70) if np.any(gm > 0) else 0.0
-    mask = gm >= thr
-    if not np.any(mask):
-        return None
+    vox = np.column_stack(np.where(data))
+    xyz = vox.mean(axis=0)
+    xyz_h = np.array([xyz[0], xyz[1], xyz[2], 1.0], dtype=float)
+    mm = (img.affine @ xyz_h)[:3].tolist()
+    return {"centroid_mm": [float(v) for v in mm]}
 
-    xs, ys, zs = np.where(mask)
-    x_mid = float(np.median(xs))
-    z_min, z_max = np.percentile(zs, 30), np.percentile(zs, 75)
-    post = mask.copy()
-    post[:, :, : int(z_min)] = False
-    post[:, :, int(z_max) + 1 :] = False
 
-    left = np.where(post & (np.indices(post.shape)[0] < x_mid))
-    right = np.where(post & (np.indices(post.shape)[0] >= x_mid))
-    if len(left[0]) == 0 or len(right[0]) == 0:
-        return None
+def _split_cmd(cmd: str) -> list[str]:
+    return shlex.split(cmd)
 
-    l_vox = np.array([left[0].mean(), left[1].mean(), left[2].mean(), 1.0])
-    r_vox = np.array([right[0].mean(), right[1].mean(), right[2].mean(), 1.0])
-    aff = img.affine
-    l_mm = (aff @ l_vox)[:3].tolist()
-    r_mm = (aff @ r_vox)[:3].tolist()
-    return {"left_mm": [float(v) for v in l_mm], "right_mm": [float(v) for v in r_mm]}
+
+def _read_ants_affine_det(mat_path: Path) -> dict[str, object]:
+    import numpy as np
+
+    if not mat_path.exists():
+        return {"path": str(mat_path), "error": "Affine file does not exist."}
+
+    text = mat_path.read_text()
+    m = re.search(r"Parameters:\s*([^\n]+)", text)
+    if m is None:
+        return {"path": str(mat_path), "error": "Could not find Parameters line."}
+
+    vals = [float(x) for x in m.group(1).strip().split()]
+    if len(vals) < 12:
+        return {"path": str(mat_path), "error": f"Expected >=12 affine params, got {len(vals)}."}
+
+    A = np.array(vals[:9], dtype=float).reshape(3, 3)
+    det = float(np.linalg.det(A))
+    return {
+        "path": str(mat_path),
+        "linear_matrix": [[float(x) for x in row] for row in A.tolist()],
+        "determinant": det,
+        "is_reflection": bool(det < 0),
+    }
+
+
+def _prepare_subject(
+    input_nii: Path,
+    out_dir: Path,
+    iso_dxyz: tuple[float, float, float],
+    do_unifize: bool,
+) -> dict[str, object]:
+    _require_cmd("3dresample")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    canonical = out_dir / "input_canonical.nii.gz"
+    _rm_if_exists(canonical)
+    canon_info = _canonicalize_nifti(input_nii, canonical)
+
+    isotropic = out_dir / "input_iso.nii.gz"
+    _rm_if_exists(isotropic)
+    _run(
+        [
+            "3dresample",
+            "-dxyz",
+            str(iso_dxyz[0]),
+            str(iso_dxyz[1]),
+            str(iso_dxyz[2]),
+            "-prefix",
+            str(isotropic),
+            "-input",
+            str(canonical),
+        ]
+    )
+
+    isotropic_canonical = out_dir / "input_iso_canonical.nii.gz"
+    _rm_if_exists(isotropic_canonical)
+    iso_canon_info = _canonicalize_nifti(isotropic, isotropic_canonical)
+
+    final_input = isotropic_canonical
+    unifized = None
+    unifize_canon_info = None
+    if do_unifize:
+        _require_cmd("3dUnifize")
+        unifized = out_dir / "input_final_unifized.nii.gz"
+        _rm_if_exists(unifized)
+        _run(["3dUnifize", "-input", str(final_input), "-prefix", str(unifized)])
+
+        final_unifized_canonical = out_dir / "input_final_unifized_canonical.nii.gz"
+        _rm_if_exists(final_unifized_canonical)
+        unifize_canon_info = _canonicalize_nifti(unifized, final_unifized_canonical)
+        final_input = final_unifized_canonical
+
+    result: dict[str, object] = {
+        "input": str(input_nii),
+        "canonicalized": str(canonical),
+        "canonicalize_info": canon_info,
+        "isotropic": str(isotropic),
+        "isotropic_canonical": str(isotropic_canonical),
+        "isotropic_canonicalize_info": iso_canon_info,
+        "final_input": str(final_input),
+        "iso_dxyz": [float(v) for v in iso_dxyz],
+        "orientation_checks": {
+            "raw": _get_orientation_info(input_nii),
+            "canonical": _get_orientation_info(canonical),
+            "isotropic": _get_orientation_info(isotropic),
+            "final": _get_orientation_info(final_input),
+        },
+    }
+    if unifized is not None:
+        result["unifized"] = str(unifized)
+        result["unifized_canonicalize_info"] = unifize_canon_info
+
+    return result
+
+
+def run_direct_ants_to_cropped_atlas(
+    input_nii: Path,
+    out_dir: Path,
+    template_nii: Path,
+    labels_nii: Path,
+    label_ids: list[int] | None,
+    ants_cmd: str,
+    ants_apply_cmd: str,
+    anterior_crop_margin_mm: float,
+    template_ap_axis: int,
+    template_anterior_side: str,
+    use_affine_stage: bool,
+) -> dict[str, object]:
+    ants_exe = _split_cmd(ants_cmd)[0]
+    ants_apply_exe = _split_cmd(ants_apply_cmd)[0]
+    _require_cmd(ants_exe)
+    _require_cmd(ants_apply_exe)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    fixed_template = out_dir / "template_units_fixed.nii.gz"
+    fixed_labels = out_dir / "template_labels_units_fixed.nii.gz"
+    template_fix = _fix_nifti_units_if_suspicious(template_nii, fixed_template)
+    labels_fix = _fix_nifti_units_if_suspicious(labels_nii, fixed_labels)
+
+    template_canonical = out_dir / "template_units_fixed_canonical.nii.gz"
+    labels_canonical = out_dir / "template_labels_units_fixed_canonical.nii.gz"
+    template_canon_info = _canonicalize_nifti(fixed_template, template_canonical)
+    labels_canon_info = _canonicalize_nifti(fixed_labels, labels_canonical)
+
+    cropped_template = out_dir / "template_cropped.nii.gz"
+    cropped_labels = out_dir / "template_labels_cropped.nii.gz"
+    crop_info = _crop_template_remove_anterior_only_manual(
+        template_nii=template_canonical,
+        labels_nii=labels_canonical,
+        out_template_nii=cropped_template,
+        out_labels_nii=cropped_labels,
+        ap_axis=template_ap_axis,
+        anterior_side=template_anterior_side,
+        anterior_margin_mm=anterior_crop_margin_mm,
+    )
+
+    prefix = out_dir / "reg_"
+    warped = out_dir / "reg_Warped.nii.gz"
+    inverse_warped = out_dir / "reg_InverseWarped.nii.gz"
+
+    reg_cmd = _split_cmd(ants_cmd) + [
+        "--dimensionality", "3",
+        "--output", f"[{prefix},{warped},{inverse_warped}]",
+        "--interpolation", "Linear",
+        "--use-histogram-matching", "0",
+        "--winsorize-image-intensities", "[0.005,0.995]",
+        "--initial-moving-transform", f"[{cropped_template},{input_nii},0]",
+        "--transform", "Rigid[0.1]",
+        "--metric", f"MI[{cropped_template},{input_nii},1,32,Regular,0.25]",
+        "--convergence", "[1000x500x250x100,1e-6,10]",
+        "--shrink-factors", "8x4x2x1",
+        "--smoothing-sigmas", "3x2x1x0vox",
+    ]
+
+    if use_affine_stage:
+        reg_cmd += [
+            "--transform", "Affine[0.1]",
+            "--metric", f"MI[{cropped_template},{input_nii},1,32,Regular,0.25]",
+            "--convergence", "[1000x500x250x100,1e-6,10]",
+            "--shrink-factors", "8x4x2x1",
+            "--smoothing-sigmas", "3x2x1x0vox",
+        ]
+
+    _run(reg_cmd)
+
+    affine = out_dir / "reg_0GenericAffine.mat"
+    affine_info = _read_ants_affine_det(affine)
+
+    labels_in_native = out_dir / "atlas_labels_in_input_space.nii.gz"
+    apply_cmd = _split_cmd(ants_apply_cmd) + [
+        "-d", "3",
+        "-i", str(cropped_labels),
+        "-r", str(input_nii),
+        "-o", str(labels_in_native),
+        "-n", "NearestNeighbor",
+        "-t", f"[{affine},1]",
+    ]
+    _run(apply_cmd)
+
+    result: dict[str, object] = {
+        "template_units_fix": template_fix,
+        "labels_units_fix": labels_fix,
+        "template_canonicalize_info": template_canon_info,
+        "labels_canonicalize_info": labels_canon_info,
+        "crop_info": crop_info,
+        "registered_subject_to_cropped_atlas": str(warped),
+        "inverse_warped": str(inverse_warped),
+        "affine_mat": str(affine),
+        "affine_info": affine_info,
+        "template_labels_in_input_space": str(labels_in_native),
+        "ants_cmd": ants_cmd,
+        "ants_apply_cmd": ants_apply_cmd,
+        "used_affine_stage": bool(use_affine_stage),
+        "orientation_checks": {
+            "subject_input": _get_orientation_info(input_nii),
+            "template_raw": _get_orientation_info(template_nii),
+            "labels_raw": _get_orientation_info(labels_nii),
+            "template_fixed": _get_orientation_info(fixed_template),
+            "labels_fixed": _get_orientation_info(fixed_labels),
+            "template_canonical": _get_orientation_info(template_canonical),
+            "labels_canonical": _get_orientation_info(labels_canonical),
+            "template_cropped": _get_orientation_info(cropped_template),
+            "labels_cropped": _get_orientation_info(cropped_labels),
+            "labels_in_native": _get_orientation_info(labels_in_native),
+        },
+    }
+
+    if label_ids:
+        roi_mask = out_dir / "roi_mask_in_input_space.nii.gz"
+        roi_info = _extract_label_mask(labels_in_native, roi_mask, label_ids)
+        result["roi_extraction"] = roi_info or {}
+        centroid = _mask_centroid_mm(roi_mask)
+        if centroid:
+            result["roi_centroid"] = centroid
+
+    return result
 
 
 def _run_single(
     nii: Path,
     out_dir: Path,
-    backend: str,
-    spm_dir: Path,
-    matlab_cmd: str,
     species: str,
-    spm_tpm: Path | None,
-    spm_affreg: str,
-) -> dict:
+    iso_dxyz: tuple[float, float, float],
+    do_unifize: bool,
+    template: Path,
+    labels: Path,
+    label_ids: list[int] | None,
+    ants_cmd: str,
+    ants_apply_cmd: str,
+    clean_case_dirs: bool,
+    anterior_crop_margin_mm: float,
+    template_ap_axis: int,
+    template_anterior_side: str,
+    use_affine_stage: bool,
+) -> dict[str, object]:
     case_out = out_dir / nii.stem.replace(".nii", "")
+    if clean_case_dirs and case_out.exists():
+        shutil.rmtree(case_out)
     case_out.mkdir(parents=True, exist_ok=True)
 
-    result: dict[str, object] = {"input_nii": str(nii), "out_dir": str(case_out), "backend": backend}
+    result: dict[str, object] = {
+        "input_nii": str(nii),
+        "out_dir": str(case_out),
+        "species": species,
+    }
 
-    if backend in {"afni", "both"}:
-        result["afni"] = run_afni(nii, case_out / "afni", species=species)
+    result["prepared"] = _prepare_subject(
+        nii,
+        case_out / "prepped",
+        iso_dxyz,
+        do_unifize,
+    )
 
-    if backend in {"spm", "both"}:
-        if species in {"mouse", "rat"} and spm_tpm is None:
-            result["spm"] = {
-                "status": "skipped",
-                "reason": "Mouse/rat SPM segmentation requires rodent TPM. Pass --spm-tpm explicitly.",
-            }
-        else:
-            tpm_to_use = spm_tpm or (spm_dir / "tpm" / "TPM.nii")
-            spm_out = run_spm(
-                nii,
-                case_out / "spm",
-                spm_dir=spm_dir,
-                matlab_cmd=matlab_cmd,
-                tpm_path=tpm_to_use,
-                affreg=spm_affreg,
-            )
-            result["spm"] = spm_out
-            dg = _estimate_dg_from_spm(Path(spm_out["gm"]))
-            if dg:
-                result["dg_proxy"] = dg
-                result["hippocampus_proxy"] = dg
+    result["ants_registration"] = run_direct_ants_to_cropped_atlas(
+        input_nii=Path(result["prepared"]["final_input"]),
+        out_dir=case_out / "ants",
+        template_nii=template,
+        labels_nii=labels,
+        label_ids=label_ids,
+        ants_cmd=ants_cmd,
+        ants_apply_cmd=ants_apply_cmd,
+        anterior_crop_margin_mm=anterior_crop_margin_mm,
+        template_ap_axis=template_ap_axis,
+        template_anterior_side=template_anterior_side,
+        use_affine_stage=use_affine_stage,
+    )
 
     return result
 
 
+def _find_scan_file_by_id(scans: list[Path], scan_id: int) -> Path | None:
+    token = f"scan-{scan_id}_"
+    for p in scans:
+        if token in p.name:
+            return p
+    return None
+
+
+def _find_all_niftis_under(root: Path) -> list[Path]:
+    files = sorted([*root.rglob("*.nii"), *root.rglob("*.nii.gz")])
+    return [p for p in files if _is_3d_nifti(p)]
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Closed-loop T2 pipeline: discover NIfTI files in a folder and run AFNI/SPM.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description="Find mouse hippocampus / DG on T2 scans using direct ANTs registration to a manually AP-cropped hippocampus atlas."
     )
-    p.add_argument("--input-root", type=Path, required=True, help="Folder containing NIfTI or Bruker scans")
-    p.add_argument(
-        "--species",
-        choices=["mouse", "rat", "human"],
-        default="mouse",
-        help="Target species; changes AFNI skull-strip and SPM defaults.",
-    )
-    p.add_argument(
-        "--backend",
-        choices=["afni", "spm", "both"],
-        default="both",
-        help="Pipeline backend",
-    )
+    p.add_argument("--input-root", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, default=Path("analysis_out"))
-    p.add_argument("--spm-dir", type=Path, default=Path("/opt/spm12"), help="SPM installation directory")
+    p.add_argument("--species", choices=["mouse", "rat", "human"], default="mouse")
+
+    p.add_argument("--scan-ids", type=int, nargs="*", default=[5, 13],
+                   help="Target T2 slab scan IDs.")
+    p.add_argument("--input-nii", type=Path, action="append", default=None)
+
+    p.add_argument("--no-convert-bruker", action="store_true")
+    p.add_argument("--converted-dir", type=Path, default=None)
+    p.add_argument("--bruker-converter-cmd", default=None)
+    p.add_argument("--bruker-converter-args", default="auto")
+
+    p.add_argument("--prep-iso-dxyz", type=float, nargs=3, default=(0.1, 0.1, 0.1),
+                   metavar=("DX", "DY", "DZ"))
+    p.add_argument("--no-unifize", action="store_true",
+                   help="Disable 3dUnifize before ANTs.")
+
+    p.add_argument("--atlas-template", type=Path, required=True,
+                   help="MRI atlas template NIfTI.")
+    p.add_argument("--atlas-labels", type=Path, required=True,
+                   help="Int-valued atlas label/segmentation NIfTI.")
+    p.add_argument("--label-ids", type=int, nargs="*", default=None,
+                   help="Atlas label IDs to extract in subject space.")
+
     p.add_argument(
-        "--matlab-cmd",
-        default="matlab",
-        help="MATLAB/SPM launcher command. For SPM standalone, provide wrapper command prefix.",
+        "--anterior-crop-margin-mm",
+        type=float,
+        default=1.0,
+        help="Extra margin in mm kept posterior to the removed anterior atlas cutoff.",
     )
     p.add_argument(
-        "--spm-tpm",
-        type=Path,
-        default=None,
-        help="Path to TPM NIfTI (for rodents, provide rodent TPM atlas).",
+        "--template-ap-axis",
+        type=int,
+        required=True,
+        choices=[0, 1, 2],
+        help="MANUAL voxel axis of the template corresponding to AP direction: 0, 1, or 2.",
     )
     p.add_argument(
-        "--spm-affreg",
-        choices=["mni", "none", "subj", "eastern"],
-        default="none",
-        help="SPM affine regularization mode (rodent workflows usually use none).",
+        "--template-anterior-side",
+        required=True,
+        choices=["low", "high"],
+        help="Which end of template AP voxel axis is anatomically anterior.",
+    )
+
+    p.add_argument(
+        "--ants-cmd",
+        default="antsRegistration",
+        help="ANTs registration command.",
     )
     p.add_argument(
-        "--input-nii",
-        type=Path,
-        action="append",
-        default=None,
-        help="Optional explicit NIfTI path(s). If omitted, files are discovered in --input-root.",
+        "--ants-apply-cmd",
+        default="antsApplyTransforms",
+        help="ANTs apply-transforms command.",
     )
     p.add_argument(
-        "--no-convert-bruker",
+        "--use-affine-stage",
         action="store_true",
-        help="Disable automatic Bruker-to-NIfTI conversion when no NIfTI files are found.",
+        help="Also run ANTs affine stage after rigid. Default is rigid only.",
     )
     p.add_argument(
-        "--converted-dir",
-        type=Path,
-        default=None,
-        help="Where converted NIfTI files are written (default: <out-dir>/converted_nifti).",
-    )
-    p.add_argument(
-        "--bruker-converter-cmd",
-        default=None,
-        help=(
-            "Bruker converter command. Defaults to 'brkraw'. "
-            "Override when brkraw is installed under a different executable/wrapper."
-        ),
-    )
-    p.add_argument(
-        "--bruker-converter-args",
-        default="tonii {input} -o {output}",
-        help="Arguments template for Bruker converter. Available placeholders: {input}, {output}, {scan_id}.",
+        "--clean-case-dirs",
+        action="store_true",
+        help="Delete existing per-case output folders before reprocessing.",
     )
     args = p.parse_args()
 
     if not args.input_root.exists():
         raise SystemExit(f"Input root not found: {args.input_root}")
+    if not args.atlas_template.exists():
+        raise SystemExit(f"Atlas template not found: {args.atlas_template}")
+    if not args.atlas_labels.exists():
+        raise SystemExit(f"Atlas labels not found: {args.atlas_labels}")
 
-    scans = args.input_nii or _find_t2_niftis(args.input_root)
+    exclude_paths: list[Path] = [
+        args.out_dir.resolve(),
+        args.atlas_template.resolve(),
+        args.atlas_template.parent.resolve(),
+        args.atlas_labels.resolve(),
+        args.atlas_labels.parent.resolve(),
+    ]
+
+    scans = args.input_nii or _find_t2_niftis(args.input_root, exclude_paths=exclude_paths)
     scans = [p for p in scans if _is_3d_nifti(p)]
 
     if args.input_nii is None and scans:
@@ -503,22 +894,20 @@ def main() -> None:
             t2_scan_dirs = [scan for scan in scan_roots if _looks_like_t2_bruker_scan(scan)]
             if t2_scan_dirs:
                 t2_scan_tokens = {scan.name for scan in t2_scan_dirs}
-                filtered_scans = [
-                    nii
-                    for nii in scans
+                filtered = [
+                    nii for nii in scans
                     if any(part in t2_scan_tokens for part in nii.relative_to(args.input_root).parts)
                 ]
-                if filtered_scans:
-                    scans = filtered_scans
+                if filtered:
+                    scans = filtered
 
     if not scans:
         bruker_candidates = _bruker_input_candidates(args.input_root)
-        can_attempt_bruker = any(_looks_like_bruker_root(candidate) for candidate in bruker_candidates)
+        can_attempt = any(_looks_like_bruker_root(candidate) for candidate in bruker_candidates)
 
-        if args.no_convert_bruker or not can_attempt_bruker:
+        if args.no_convert_bruker or not can_attempt:
             raise SystemExit(
-                "No NIfTI files found. Convert Bruker data first (e.g. brkraw), "
-                "or run without --no-convert-bruker to auto-convert."
+                "No candidate NIfTI files found. Convert Bruker data first or allow auto-conversion."
             )
 
         converted_dir = args.converted_dir or (args.out_dir / "converted_nifti")
@@ -529,42 +918,75 @@ def main() -> None:
             converter_cmd=args.bruker_converter_cmd,
             converter_args_template=args.bruker_converter_args,
         )
+        scans = [p for p in scans if _is_3d_nifti(p)]
+
         if not scans:
-            raise SystemExit(
-                "Bruker conversion completed but no NIfTI files were discovered in the converted output. "
-                "Check --bruker-converter-cmd/--bruker-converter-args and source data."
-            )
+            raise SystemExit("Conversion succeeded but no NIfTI files were discovered.")
+
+    broad_pool = scans[:]
+    converted_search_root = args.converted_dir or (args.out_dir / "converted_nifti")
+    if converted_search_root.exists():
+        for pth in _find_all_niftis_under(converted_search_root):
+            if pth not in broad_pool:
+                broad_pool.append(pth)
+
+    slab_paths: dict[int, Path] = {}
+    for sid in args.scan_ids:
+        pth = _find_scan_file_by_id(broad_pool, sid)
+        if pth is not None:
+            slab_paths[sid] = pth
+
+    missing_slabs = [sid for sid in args.scan_ids if sid not in slab_paths]
+    if missing_slabs:
+        raise SystemExit(f"Could not find slab scan files for IDs: {missing_slabs}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summary = {
+
+    summary: dict[str, object] = {
         "input_root": str(args.input_root),
-        "backend": args.backend,
-        "species": args.species,
-        "auto_bruker_conversion": not args.no_convert_bruker,
+        "atlas_template": str(args.atlas_template),
+        "atlas_labels": str(args.atlas_labels),
+        "scan_ids": [int(x) for x in args.scan_ids],
+        "template_ap_axis": int(args.template_ap_axis),
+        "template_anterior_side": str(args.template_anterior_side),
+        "used_affine_stage": bool(args.use_affine_stage),
         "cases": [],
     }
-    for nii in scans:
-        if not nii.exists():
-            print(f"Skipping missing file: {nii}")
-            continue
-        print(f"=== Processing: {nii}")
+
+    for slab_id in args.scan_ids:
+        slab_nii = slab_paths[slab_id]
+        print(f"=== Processing slab scan {slab_id}")
         try:
             case_result = _run_single(
-                nii=nii,
+                nii=slab_nii,
                 out_dir=args.out_dir,
-                backend=args.backend,
-                spm_dir=args.spm_dir,
-                matlab_cmd=args.matlab_cmd,
                 species=args.species,
-                spm_tpm=args.spm_tpm,
-                spm_affreg=args.spm_affreg,
+                iso_dxyz=tuple(args.prep_iso_dxyz),
+                do_unifize=not args.no_unifize,
+                template=args.atlas_template,
+                labels=args.atlas_labels,
+                label_ids=args.label_ids,
+                ants_cmd=args.ants_cmd,
+                ants_apply_cmd=args.ants_apply_cmd,
+                clean_case_dirs=args.clean_case_dirs,
+                anterior_crop_margin_mm=args.anterior_crop_margin_mm,
+                template_ap_axis=int(args.template_ap_axis),
+                template_anterior_side=str(args.template_anterior_side),
+                use_affine_stage=bool(args.use_affine_stage),
             )
         except subprocess.CalledProcessError as exc:
             case_result = {
-                "input_nii": str(nii),
+                "input_nii": str(slab_nii),
                 "status": "failed",
                 "error": str(exc),
             }
+        except Exception as exc:
+            case_result = {
+                "input_nii": str(slab_nii),
+                "status": "failed",
+                "error": str(exc),
+            }
+
         summary["cases"].append(case_result)
 
     out_json = args.out_dir / "summary.json"
