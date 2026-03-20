@@ -122,6 +122,18 @@ def _crop_to_brain(slice2d: np.ndarray, pad: int = 10) -> tuple[np.ndarray, tupl
     return img[y0:y1, x0:x1], (y0, y1, x0, x1)
 
 
+def _brain_mask2d(slice2d: np.ndarray) -> np.ndarray:
+    img = _normalize_for_display(slice2d)
+    thr = max(0.06, np.percentile(img, 65) * 0.2)
+    mask = img > thr
+    if np.count_nonzero(mask) < 50:
+        return np.ones(img.shape, dtype=bool)
+    mask = ndimage.binary_opening(mask, iterations=1)
+    mask = ndimage.binary_closing(mask, iterations=2)
+    mask = ndimage.binary_fill_holes(mask)
+    return mask.astype(bool)
+
+
 def _resample_slice_to_subject(atlas_slice: np.ndarray, atlas_label_slice: np.ndarray, atlas_zooms_xy: tuple[float, float], subj_shape_xy: tuple[int, int], subj_zooms_xy: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
     # resample atlas slice to subject in-plane pixel size, then center pad/crop to subject shape
     scale_y = atlas_zooms_xy[0] / subj_zooms_xy[0]
@@ -165,8 +177,18 @@ def _transform_inplane_zooms(atlas_zooms_xy: tuple[float, float], rot90_k: int) 
 
 def _ecc_register(moving: np.ndarray, fixed: np.ndarray, motion: str = "affine", n_iter: int = 500) -> tuple[np.ndarray, float]:
     # moving -> fixed
-    mov = (_normalize_for_display(moving) * 255.0).astype(np.uint8)
-    fix = (_normalize_for_display(fixed) * 255.0).astype(np.uint8)
+    mov_f = _normalize_for_display(moving)
+    fix_f = _normalize_for_display(fixed)
+    mask = _brain_mask2d(moving) & _brain_mask2d(fixed)
+    if np.count_nonzero(mask) >= 50:
+        mov_f = mov_f * mask
+        fix_f = fix_f * mask
+        cv_mask = (mask.astype(np.uint8) * 255)
+    else:
+        cv_mask = None
+
+    mov = (mov_f * 255.0).astype(np.uint8)
+    fix = (fix_f * 255.0).astype(np.uint8)
 
     warp_mode = {
         "translation": cv2.MOTION_TRANSLATION,
@@ -187,7 +209,7 @@ def _ecc_register(moving: np.ndarray, fixed: np.ndarray, motion: str = "affine",
             warpMatrix=warp,
             motionType=warp_mode,
             criteria=criteria,
-            inputMask=None,
+            inputMask=cv_mask,
             gaussFiltSize=5,
         )
         return warp, float(cc)
