@@ -16,6 +16,13 @@ This is meant for partial 2D TurboRARE coronal stacks where blind 3D automation
 can be brittle and waste time.
 """
 
+# python3 mouse_hippo_manual_assisted.py \
+#   --project-root /SSD2/mice_mri \
+#   --experiment 20260320 \
+#   --run 7 \
+#   --atlas-template /SSD2/mice_mri/mouse_atlas/ambmc_hippo/ambmc-c57bl6-model-nonsym_v0.8.nii \
+#   --atlas-labels /SSD2/mice_mri/mouse_atlas/ambmc_hippo/ambmc-c57bl6-label-hippocampus_v0.8.nii
+
 from __future__ import annotations
 
 import argparse
