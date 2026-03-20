@@ -175,6 +175,23 @@ def _transform_inplane_zooms(atlas_zooms_xy: tuple[float, float], rot90_k: int) 
     return atlas_zooms_xy
 
 
+def _sanitize_warp(warp: np.ndarray, motion: str) -> np.ndarray:
+    if motion != "affine":
+        return warp
+    a = warp[:, :2]
+    tx, ty = float(warp[0, 2]), float(warp[1, 2])
+    det = float(np.linalg.det(a))
+    try:
+        svals = np.linalg.svd(a, compute_uv=False)
+        anisotropy = float(max(svals) / max(min(svals), 1e-6))
+    except np.linalg.LinAlgError:
+        anisotropy = float("inf")
+    # Prevent pathological slice-by-slice deformation; keep only translation if affine is implausible.
+    if not np.isfinite(det) or det < 0.85 or det > 1.15 or anisotropy > 1.2:
+        return np.array([[1.0, 0.0, tx], [0.0, 1.0, ty]], dtype=np.float32)
+    return warp
+
+
 def _ecc_register(moving: np.ndarray, fixed: np.ndarray, motion: str = "affine", n_iter: int = 500) -> tuple[np.ndarray, float]:
     # moving -> fixed
     mov_f = _normalize_for_display(moving)
@@ -212,6 +229,7 @@ def _ecc_register(moving: np.ndarray, fixed: np.ndarray, motion: str = "affine",
             inputMask=cv_mask,
             gaussFiltSize=5,
         )
+        warp = _sanitize_warp(warp, motion=motion)
         return warp, float(cc)
     except cv2.error:
         return np.eye(2, 3, dtype=np.float32), float("-inf")
@@ -491,7 +509,7 @@ def main() -> None:
     p.add_argument("--subject-end", type=int, default=None, help="Last subject slice that should receive hippocampus labels.")
     p.add_argument("--atlas-start", type=int, default=None, help="First atlas slice matching subject-start.")
     p.add_argument("--atlas-end", type=int, default=None, help="Last atlas slice matching subject-end.")
-    p.add_argument("--motion", choices=["translation", "euclidean", "affine"], default="affine")
+    p.add_argument("--motion", choices=["translation", "euclidean", "affine"], default="euclidean")
     p.add_argument("--converted-dir", type=Path, default=None, help="Output folder for converted Bruker NIfTI files. Default: <out-dir>/converted_nifti.")
     p.add_argument("--no-convert-bruker", action="store_true", help="Disable auto-conversion when run folder has no NIfTI files.")
     p.add_argument("--bruker-converter-cmd", default=None, help="Converter executable/wrapper. Default: brkraw")
