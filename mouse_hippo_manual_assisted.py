@@ -287,6 +287,16 @@ def _is_scan_like_dir(path: Path) -> bool:
     )
 
 
+def _looks_like_bruker_root(root: Path) -> bool:
+    if (root / "study.MR").exists() and (root / "subject").exists():
+        return True
+    if (root / "pdata" / "1" / "2dseq").exists():
+        return True
+    if any(root.glob("pdata/*/2dseq")):
+        return True
+    return any(root.glob("*/pdata/*/2dseq"))
+
+
 def _looks_like_t2_scan(scan_dir: Path) -> bool:
     method = scan_dir / "method"
     if not method.exists():
@@ -312,9 +322,48 @@ def _converter_commands(converter_cmd: str, args_template: str, input_dir: Path,
         "convert -i {input} -o {output}",
         "convert-batch {input} -o {output}",
         "convert-batch -i {input} -o {output}",
-        "tonii {input} -o {output}",
     ]
     return [build(tpl) for tpl in templates]
+
+
+def _bruker_input_candidates(root: Path) -> list[Path]:
+    candidates = [root]
+    ancestors = [root, *root.parents]
+    for anc in ancestors:
+        if anc == anc.parent:
+            continue
+        if _is_scan_like_dir(anc):
+            candidates.append(anc)
+            candidates.append(anc.parent)
+        elif (anc / "study.MR").exists():
+            candidates.append(anc)
+
+    if "pdata" in root.parts:
+        pdata_idx = root.parts.index("pdata")
+        if pdata_idx > 0:
+            scan_guess = Path(*root.parts[:pdata_idx])
+            candidates.extend([scan_guess, scan_guess.parent])
+
+    uniq: list[Path] = []
+    for c in candidates:
+        if c not in uniq:
+            uniq.append(c)
+    return uniq
+
+
+def _filter_converted_to_run(paths: list[Path], run_name: str) -> list[Path]:
+    token_patterns = [
+        f"scan-{run_name}_",
+        f"scan_{run_name}_",
+        f"scan-{run_name}.",
+        f"scan_{run_name}.",
+    ]
+    filtered = [
+        p for p in paths
+        if any(tok in p.name.lower() for tok in token_patterns)
+        or run_name in p.parts
+    ]
+    return filtered or paths
 
 
 def _convert_run_bruker_to_nifti(
@@ -322,18 +371,21 @@ def _convert_run_bruker_to_nifti(
     converted_dir: Path,
     converter_cmd: str | None,
     converter_args: str,
+    run_name: str,
 ) -> list[Path]:
     resolved_cmd = converter_cmd or "brkraw"
     _require_cmd(shlex.split(resolved_cmd)[0])
     converted_dir.mkdir(parents=True, exist_ok=True)
 
-    scan_dirs = [d for d in sorted(run_dir.iterdir()) if _is_scan_like_dir(d)]
+    scan_dirs = [d for d in sorted(run_dir.iterdir()) if _is_scan_like_dir(d)] if run_dir.is_dir() else []
     t2_scans = [d for d in scan_dirs if _looks_like_t2_scan(d)] or scan_dirs
-    candidates = t2_scans or [run_dir]
+    candidates = t2_scans or [c for c in _bruker_input_candidates(run_dir) if _looks_like_bruker_root(c) or _is_scan_like_dir(c)]
+    if not candidates:
+        candidates = [run_dir]
 
     found: list[Path] = []
-    for scan in candidates:
-        scan_out = converted_dir / f"scan_{scan.name}"
+    for idx, scan in enumerate(candidates, start=1):
+        scan_out = converted_dir / f"attempt_{idx}_{scan.name}"
         if scan_out.exists():
             shutil.rmtree(scan_out)
         scan_out.mkdir(parents=True, exist_ok=True)
@@ -349,23 +401,10 @@ def _convert_run_bruker_to_nifti(
 
         if success:
             found.extend(_discover_nifti_under(scan_out))
-
-    # fallback: some converters need a study root rather than scan folder
-    if not found:
-        study_out = converted_dir / "study_root"
-        if study_out.exists():
-            shutil.rmtree(study_out)
-        study_out.mkdir(parents=True, exist_ok=True)
-        for cmd in _converter_commands(resolved_cmd, converter_args, run_dir, study_out):
-            try:
-                _run(cmd)
-            except subprocess.CalledProcessError:
-                continue
-            found.extend(_discover_nifti_under(study_out))
             if found:
                 break
 
-    return found
+    return _filter_converted_to_run(found, run_name=run_name)
 
 
 def main() -> None:
@@ -419,6 +458,7 @@ def main() -> None:
                 converted_dir=converted_dir,
                 converter_cmd=args.bruker_converter_cmd,
                 converter_args=args.bruker_converter_args,
+                run_name=str(args.run),
             )
             if not input_subjects:
                 raise SystemExit(
